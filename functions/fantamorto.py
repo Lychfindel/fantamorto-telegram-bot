@@ -170,7 +170,7 @@ class Team:
 
 
 class Game:
-    def __init__(self, teams=[], ban_list=[]):
+    def __init__(self, teams=[], ban_list=[], team_size=10):
         self.teams = teams
         self.all_players = {'alive': {}, 'dead': {}}
         self.ban_list = ban_list
@@ -178,6 +178,11 @@ class Game:
         self.status = GAME_STEPS["Starting"]
         self.draft_order = []
         self.current_drafter = 0
+        self.team_size = team_size
+    
+    def update_structure(self):
+        if not hasattr(self, "team_size"):
+            self.team_size = 10
 
     def add_team(self, team):
         if team.owner in [t.owner for t in self.teams]:

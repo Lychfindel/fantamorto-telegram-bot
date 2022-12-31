@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 my_persistence = PicklePersistence(filename='fantamorto-persistence.ptb')
 
 # Constants
-FANTAMORTO_MAX_TEAM_SIZE = 3
+DEFAULT_FANTAMORTO_TEAM_SIZE = 10
 
 # Global variables
 load_dotenv()
@@ -56,10 +56,10 @@ def start(update: Update, context: CallbackContext):
         update.message.reply_text(
             "A game of Fantamorto is already in progress in this group.")
     else:
-        context.chat_data[CHAT_DATA_KEY] = Game() # type: ignore
+        context.chat_data[CHAT_DATA_KEY] = Game(team_size=DEFAULT_FANTAMORTO_TEAM_SIZE) # type: ignore
         update.message.reply_text(
             "Welcome to Fantamorto!\n"
-            +f"Each player can add up to {FANTAMORTO_MAX_TEAM_SIZE} real, alive people with a page on wikidata.org.\n"
+            +f"Each player can add up to {game.team_size} real, alive people with a page on wikidata.org.\n"
             +"To join the game send the command /join")
 
 
@@ -129,7 +129,7 @@ def draft(update: Update, context: CallbackContext):
     update.message.reply_markdown_v2(
         escape_markdown(
             f"{mention} it's your turn to draft!\n"
-            +f"You still have {FANTAMORTO_MAX_TEAM_SIZE - len(next_drafter.players)} persons left!", version=2))
+            +f"You still have {game.team_size - len(next_drafter.players)} persons left!", version=2))
     return
 
 
@@ -150,13 +150,13 @@ def add(update: Update, context: CallbackContext):
     if not team:
         update.message.reply_text("You are not part of the game :( Join with /join")
         return
-    
-    if len(team.players) >= FANTAMORTO_MAX_TEAM_SIZE:
-        update.message.reply_text(f"You already have {FANTAMORTO_MAX_TEAM_SIZE} players")
+
+    if len(team.players) >= game.team_size:
+        update.message.reply_text(f"You already have {game.team_size} players")
         return
-    
+
     current_drafter = game.get_current_drafter()
-    
+
     if team != current_drafter:
         if team.owner.username:
             team_owner_mention = f"@{current_drafter.owner.username}"
@@ -185,12 +185,12 @@ def add(update: Update, context: CallbackContext):
     except requests.ConnectionError:
         update.message.reply_text("There is a connection problem with wikidata. Try later!")
         return
-    
+
     except ValueError as err:
         update.message.reply_text(str(err))
-    
+
     # If all players are selected ask to select remaining captains!
-    if all(len(t.players) == FANTAMORTO_MAX_TEAM_SIZE for t in game.teams):
+    if all(len(t.players) == game.team_size for t in game.teams):
         if all(t.has_captain() for t in game.teams):
             game.start_game()
             update.message.reply_text("All the teams are full! Let's start the game!")
@@ -208,12 +208,15 @@ def add(update: Update, context: CallbackContext):
         update.message.reply_markdown_v2(
             escape_markdown(
                 f"{mention} it's your turn to draft!\n"
-                +f"You still have {FANTAMORTO_MAX_TEAM_SIZE - len(next_drafter.players)} persons left!", version=2))
+                +f"You still have {game.team_size - len(next_drafter.players)} persons left!", version=2))
         return
-    
+
 
 def get_chat_game(context: CallbackContext) -> Game:
-    return context.chat_data.get(CHAT_DATA_KEY, None) # type: ignore
+    game = context.chat_data.get(CHAT_DATA_KEY, None) # type: ignore
+    if game:
+        game.update_structure()
+    return game
 
 
 def captain(update: Update, context: CallbackContext):
@@ -228,7 +231,7 @@ def captain(update: Update, context: CallbackContext):
     if not context.args:
         update.message.reply_text("You have to specify an index. You can find them with /team")
         return
-    
+
     team_owner = update.message.from_user
     idx_player = ' '.join(context.args)
     idx_player = int(idx_player)
@@ -283,7 +286,7 @@ def team(update: Update, context: CallbackContext):
     if context.args:
         team_name = ' '.join(context.args)
         use_team_name = True
-    
+
     if use_team_name:
         teams = game.get_team_from_name(team_name)
         msg = f"I found {len(teams)} teams called {team_name}\n"
