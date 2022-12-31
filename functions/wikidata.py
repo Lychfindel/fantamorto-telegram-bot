@@ -93,8 +93,8 @@ def get_query_df(data):
     df.fillna('', inplace=True)
     df.rename(columns=WIKIDATA_COLUMNS, inplace=True)
     grouped = df.groupby(["person", "birth", "label", "death"]).agg(lambda x: sorted(list(set(x)))).reset_index()
-
-    return grouped
+    with_dob = grouped[grouped["birth"] != ""].reset_index(drop=True)
+    return with_dob
 
 
 def is_unique_person(df):

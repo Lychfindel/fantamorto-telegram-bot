@@ -257,6 +257,7 @@ class Game:
             raise ValueError("The player is already part of a team")
         self.all_players['alive'][player.WID] = player
         self.teams[idx].add_player(player)
+        return player
 
     def update_alive_players(self, updated_players):
         if not self.first_death:

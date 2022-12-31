@@ -56,7 +56,8 @@ def start(update: Update, context: CallbackContext):
         update.message.reply_text(
             "A game of Fantamorto is already in progress in this group.")
     else:
-        context.chat_data[CHAT_DATA_KEY] = Game(team_size=DEFAULT_FANTAMORTO_TEAM_SIZE) # type: ignore
+        game = Game(team_size=DEFAULT_FANTAMORTO_TEAM_SIZE) # type: ignore
+        context.chat_data[CHAT_DATA_KEY] = game
         update.message.reply_text(
             "Welcome to Fantamorto!\n"
             +f"Each player can add up to {game.team_size} real, alive people with a page on wikidata.org.\n"
@@ -75,7 +76,6 @@ def stop(update: Update, context: CallbackContext):
         for name, score in game.ranking:
             end_msg += f"{name}: {score}\n"
     end_msg += "To start a new game send /start"
-    ipdb.set_trace()
     del context.chat_data[CHAT_DATA_KEY] # type: ignore
     update.message.reply_text(end_msg)
 
@@ -173,21 +173,37 @@ def add(update: Update, context: CallbackContext):
             return
         if len(persons) > 1:
             msg = f"I found multiple persons for {person_name}\. Please send the WID of the one you want\n"
-            msg += "WID\tAGE\tOCCUPATIONS\n"
+            msg += "WID\tAGE\tOCCUPATIONS\tPOINTS\n"
             for idx, p in enumerate(persons):
-                msg += f"{idx+1}: [{p.WID}](http://www.wikidata.org/entity/{p.WID})\t{p.age}y\t{', '.join(p.occupations)}\n"
+                msg += f"{idx+1}: [{p.WID}](http://www.wikidata.org/entity/{p.WID})\t{p.age}y\t{', '.join(p.occupations)}\t{p.calculate_score()}pt\n"
             update.message.reply_markdown_v2(msg)
             return
         else:
             person = persons[0]
-            game.add_player(team=team, player=person)
+            added_person = game.add_player(team=team, player=person)
 
     except requests.ConnectionError:
         update.message.reply_text("There is a connection problem with wikidata. Try later!")
         return
 
     except ValueError as err:
-        update.message.reply_text(str(err))
+        update.message.reply_text(f"There was an error: {err}")
+        return
+    
+    # This should never happen
+    if not added_person:
+        update.message.reply_text(f"For some reason I couldn't add any person. Sorry :(")
+        return
+    
+    update.message.reply_markdown_v2(
+        f"{team.name} has as a new player\!\n"
+        +f"[{added_person.name}](http://www.wikidata.org/entity/{added_person.WID}) "
+        +f"\({', '.join(added_person.genders)}\) "
+        +f"a famous {', '.join(added_person.occupations)}\. "
+        +f"Born in {added_person.dob.year}, "
+        +f"holds the passport of {', '.join(added_person.citizenships)}\.\n"
+        +f"In the event of a tragic fatality he will bring {added_person.calculate_score()} points to the team\.\n"
+        )
 
     # If all players are selected ask to select remaining captains!
     if all(len(t.players) == game.team_size for t in game.teams):
