@@ -170,7 +170,7 @@ class Team:
 
 
 class Game:
-    def __init__(self, teams=[], ban_list=[], team_size=10):
+    def __init__(self, teams=[], ban_list={}, team_size=10):
         self.teams = teams
         self.all_players = {'alive': {}, 'dead': {}}
         self.ban_list = ban_list
@@ -198,15 +198,23 @@ class Game:
         self.status = GAME_STEPS["Draft"]
     
     def next_drafter(self):
-        next_drafter = self.draft_order[self.current_drafter]
         self.current_drafter += 1
         if self.current_drafter >= len(self.draft_order):
             self.current_drafter = 0
             self.draft_order.reverse()
+        next_drafter = self.draft_order[self.current_drafter]
         return next_drafter
     
     def get_current_drafter(self):
         return self.draft_order[self.current_drafter]
+    
+    def cancel_draft(self):
+        for team in self.teams:
+            team.players = []
+            team.captain = None
+            team.score = 0
+        self.status = GAME_STEPS["Starting"]
+
     
     def start_game(self):
         self.status = GAME_STEPS["Running"]
@@ -253,6 +261,8 @@ class Game:
             raise ValueError("The team is not part of the game!")
         if player.dod:
             raise ValueError("The player is already dead :(")
+        if player.WID in self.ban_list:
+            raise ValueError("The player is in the ban list")
         if player.WID in self.all_players['alive']:
             raise ValueError("The player is already part of a team")
         self.all_players['alive'][player.WID] = player
@@ -275,6 +285,9 @@ class Game:
                 for t in self.teams:
                     if player in t.players:
                         t.update_player(player)
+    
+    def update_ban_list(self, ban_list):
+        self.ban_list = ban_list
 
     @property
     def ranking(self):

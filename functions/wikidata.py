@@ -86,6 +86,8 @@ def get_person_info(input: str, lang: str) -> pd.DataFrame:
 
 def get_query_df(data):
     df = pd.json_normalize(data["results"]["bindings"])
+    if df.empty:
+        return df
     discarded_columns = [c for c in df.columns if c not in WIKIDATA_COLUMNS]
     missing_columns = [c for c in WIKIDATA_COLUMNS if c not in df.columns]
     df.drop(labels=discarded_columns, axis=1, inplace=True)
@@ -110,7 +112,7 @@ def get_query_from_id(id, lang):
     WHERE
     {{
       ?person wdt:P31 wd:Q5 .  # ?person is a human
-      OPTIONAL {{ ?person wdt:P569 ?dateOfBirth . }}  # ?person has a date of birth (optional)
+      ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth
       OPTIONAL {{ ?person wdt:P570 ?dateOfDeath . }}  # ?person has a date of death (optional)
       OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
       OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
@@ -127,7 +129,7 @@ def get_query_from_name(name, lang):
     {{
       ?person wdt:P31 wd:Q5 .  # ?person is a human
       ?person rdfs:label "{}"@en .  # ?person has a label (name)
-      OPTIONAL {{ ?person wdt:P569 ?dateOfBirth . }}  # ?person has a date of birth (optional)
+      ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth 
       OPTIONAL {{ ?person wdt:P570 ?dateOfDeath . }}  # ?person has a date of death (optional)
       OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
       OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
