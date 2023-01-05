@@ -323,7 +323,10 @@ def team(update: Update, context: CallbackContext):
                     player_msg += "* "
                 player_msg += f"{player.name} - {player.age}y "
                 if not player.dod:
-                    player_msg += f"😕 ({player.calculate_score()} pt)"
+                    if 'schumacher' in player.name.lower():
+                        player_msg += f"🌱 ({player.calculate_score()} pt)"
+                    else:
+                        player_msg += f"🙂 ({player.calculate_score()} pt)"
                 else:
                     player_msg += f"💀 ({player.calculate_score()} pt)"
                 msg += f"{player_msg}\n"
