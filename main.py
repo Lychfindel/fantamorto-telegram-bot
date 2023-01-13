@@ -1,4 +1,5 @@
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 import random
 import requests
@@ -16,10 +17,29 @@ from functions.fantamorto import Game, Team, GAME_STEPS
 
 
 # Enable logging
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+LOG_FOLDER = "logs"
+LOG_FILENAME = "fantamorto_bot.log"
+LOG_LEVEL = logging.DEBUG
+
+if not os.path.exists(LOG_FOLDER):
+    os.mkdir(LOG_FOLDER)
+logfile = os.path.join(LOG_FOLDER, LOG_FILENAME)
+
+stream_handler = logging.StreamHandler()
+file_handler = RotatingFileHandler(logfile, maxBytes=100000, backupCount=10)
+
+formatter = logging.Formatter('[%(asctime)s] [%(name)s:%(filename)s:%(lineno)d] [%(levelname)s] %(message)s')
+
+stream_handler.setFormatter(formatter)
+stream_handler.setLevel(LOG_LEVEL)
+file_handler.setFormatter(formatter)
+file_handler.setLevel(LOG_LEVEL)
 
 logger = logging.getLogger(__name__)
+logger.handlers.clear()
+logger.addHandler(stream_handler)
+logger.addHandler(file_handler)
+
 
 # Make bot persistent
 my_persistence = PicklePersistence(filepath='fantamorto-persistence_v20.ptb')
