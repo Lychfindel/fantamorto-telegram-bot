@@ -255,6 +255,7 @@ class Game:
             team.players = []
             team.captain = None
             team.score = 0
+        self.all_players = {'alive': {}, 'dead': {}}
         self.status = GAME_STEPS["Starting"]
 
     

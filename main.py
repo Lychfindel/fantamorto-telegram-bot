@@ -690,6 +690,83 @@ async def superuser_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return 
 
+async def superuser_substitute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or update.effective_user.username != SUPERUSER:
+        await update.message.reply_text(f"Only my dad can do this. You are {update.effective_user.username}, my dad is {SUPERUSER}")
+        return
+    
+    msg = ""
+    if context.args:
+        msg = ' '.join(context.args)
+    pattern_command = r"-chat (?P<chat>-?\d+) -team (?P<team>.+) -old (?P<old>Q\d+) -new (?P<new>Q\d+)"
+    m = re.match(pattern_command, msg)
+    if not m or not m.group("chat") or not m.group("team") or not m.group("old") or not m.group("new"):
+        await update.message.reply_text("Use /superuser_add -chat CHATID -team TEAMNAME -old WID -new WID")
+        return
+
+    chat = int(m.group("chat"))
+
+    game = context.application.chat_data[chat].get("game")
+    if not game:
+        await update.message.reply_text(f"No game for chat {chat}")
+        return
+    
+    team_name = m.group("team")
+    team = game.get_team_from_name(team_name)
+    if not team:
+        await update.message.reply_text(f"No team for {team_name}")
+        return
+    elif len(team) > 1:
+        await update.message.reply_text(f"Multiple teams for {team_name}")
+        return
+    else:
+        team = team[0]
+    
+    old = m.group("old")
+    new = m.group("new")
+
+    if old not in team.players:
+        await update.message.reply_text(f"Person {old} is not in {team_name}")
+        return
+    
+    players = get_person(new)
+    if len(players) != 1:
+        await update.message.reply_text(f"None or multiple persons with id {new}")
+        return
+    player = players[0]
+
+    if old in game.all_players["alive"]:
+        del game.all_players["alive"][old]
+    elif old in game.all_players["dead"]:
+        del game.all_players["dead"][old]
+    
+    old_person = [p for p in team.players if p.WID == old]
+    old_person = old_person[0]
+
+    team.players = [p for p in team.players if p.WID != old]
+
+    msg = f"Removed {old_person} from team {team_name}\n"
+    await update.message.reply_text(msg)
+
+    old_status = game.status
+    game.status = GAME_STEPS["Draft"]
+
+    added_person = game.add_player(team=team, player=player, if_dead=True)
+
+    msg = f"Added {added_person} persons to team {team_name}\n"
+    await update.message.reply_text(msg)
+
+    game.status = old_status
+
+    msg = f"My good creator substituted {old_person} with {added_person} for team {team_name}"
+
+    await context.bot.send_message(
+        chat_id=chat,
+        text=msg)
+
+
+    return 
+
 def main() -> None:
 
     # Get the application to register handlers
@@ -707,7 +784,7 @@ def main() -> None:
     application.add_handler(CommandHandler("rename", rename, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("all_teams", all_teams, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("update_ban", update_ban_list, filters=~filters.UpdateType.EDITED_MESSAGE))
-    application.add_handler(CommandHandler("cancel_draft", cancel_draft, filters=~filters.UpdateType.EDITED_MESSAGE))
+    # application.add_handler(CommandHandler("cancel_draft", cancel_draft, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("draft_order", draft_order, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("all_persons", all_persons, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("info", info))
