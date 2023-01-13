@@ -6,6 +6,8 @@ import requests
 from dotenv import load_dotenv
 import pdb
 import yaml
+import re
+import time
 
 
 from telegram import Update
@@ -51,6 +53,7 @@ DEFAULT_FANTAMORTO_TEAM_SIZE = 10
 # Global variables
 load_dotenv()
 TOKEN = os.getenv("TOKEN", "")
+SUPERUSER = os.getenv("SUPERUSER", "")
 CHAT_DATA_KEY = "game"
 BAN_LIST_FILE = "ban_list.yaml"
 
@@ -577,8 +580,114 @@ async def test_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = ""
     if context.args:
         msg = ' '.join(context.args)
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(msg)
     return
+
+async def superuser_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or update.effective_user.username != SUPERUSER:
+        await update.message.reply_text(f"Only my dad can do this. You are {update.effective_user.username}, my dad is {SUPERUSER}")
+        return
+    
+    msg = ""
+    if context.args:
+        msg = ' '.join(context.args)
+    pattern_command = r"-chat (?P<chat>-?\d+) -team (?P<team>.+) -list (?P<list>.+)"
+    pattern_list = r"(Q\d+)"
+    m = re.match(pattern_command, msg)
+    if not m or not m.group("chat") or not m.group("team") or not m.group("list"):
+        await update.message.reply_text("Use /superuser_add -chat CHATID -team TEAMNAME -list Q123 Q456")
+        return
+    persons = re.findall(pattern_list, m.group("list"))
+    if not persons:
+        await update.message.reply_text(f"I couldn't find any Wikimedia ids in {m.group('list')}")
+        return
+    
+    chat = int(m.group("chat"))
+    game = context.application.chat_data[chat].get("game")
+    if not game:
+        await update.message.reply_text(f"No game for chat {chat}")
+        return
+    
+    team_name = m.group("team")
+    team = game.get_team_from_name(team_name)
+    if not team:
+        await update.message.reply_text(f"No team for {team_name}")
+        return
+    elif len(team) > 1:
+        await update.message.reply_text(f"Multiple teams for {team_name}")
+        return
+    else:
+        team = team[0]
+    
+    old_status = game.status
+    game.status = GAME_STEPS["Draft"]
+
+    for p in team.players:
+        if p.WID in game.all_players["alive"]:
+            del game.all_players["alive"][p.WID]
+        elif p.WID in game.all_players["dead"]:
+            del game.all_players["dead"][p.WID]
+
+    team.players = []
+    added_persons = []
+    players = get_person(persons)
+    time.sleep(5)
+    for player in players:
+        added_person = game.add_player(team=team, player=player, if_dead=True)
+        added_persons.append(added_person)
+    # for person in persons:
+    #     try:
+    #         players = get_person(person)
+    #         time.sleep(5)
+    #     except requests.exceptions.ConnectionError:
+    #         logging.info("SUPERUSER_ADD: Sleep a little bit for Wikidata")
+    #         time.sleep(20)
+    #         players = get_person(person)
+    #         time.sleep(5)
+    #     players = get_person(person)
+    #     if len(players) == 0:
+    #         continue
+    #     elif len(players) > 1:
+    #         continue
+
+    #     player = players[0]
+    #     added_person = game.add_player(team=team, player=player, if_dead=True)
+    #     added_persons.append(added_person)
+
+    msg = f"Added {len(added_persons)} persons to team {team_name}\n"
+    for idx, p in enumerate(added_persons):
+        msg += f"{idx}: {p.name} ({p.WID})\n"
+    await update.message.reply_text(msg)
+
+    game.status = old_status
+
+    # await context.bot.send_message(
+    #     chat_id=chat,
+    #     text="My good creator fixed your mess.\n"+msg)
+
+    return 
+
+async def superuser_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or update.effective_user.username != SUPERUSER:
+        await update.message.reply_text(f"Only my dad can do this. You are {update.effective_user.username}, my dad is {SUPERUSER}")
+        return
+    
+    msg = ""
+    if context.args:
+        msg = ' '.join(context.args)
+    pattern_command = r"-chat (?P<chat>-?\d+) -msg (?P<msg>.+)"
+    m = re.match(pattern_command, msg)
+    if not m or not m.group("chat") or not m.group("msg"):
+        await update.message.reply_text("Use /superuser_add -chat CHATID -msg TEXT")
+        return
+    
+    chat = int(m.group("chat"))
+
+    await context.bot.send_message(
+        chat_id=chat,
+        text=msg)
+
+    return 
 
 def main() -> None:
 
@@ -603,6 +712,8 @@ def main() -> None:
     application.add_handler(CommandHandler("info", info))
     application.add_handler(CommandHandler("test_msg", test_msg))
     application.add_handler(CommandHandler("fix_draft", fix_draft))
+    application.add_handler(CommandHandler("superuser_add", superuser_add, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("superuser_send", superuser_send, filters=~filters.UpdateType.EDITED_MESSAGE))
 
     # Start the Bot
     application.run_polling()

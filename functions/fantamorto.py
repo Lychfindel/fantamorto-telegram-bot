@@ -301,14 +301,14 @@ class Game:
     def get_team_from_name(self, name):
         return [t for t in self.teams if t.name == name]
 
-    def add_player(self, team, player):
+    def add_player(self, team, player, if_dead=False):
         if self.status != GAME_STEPS["Draft"]:
             raise ValueError("You have to start the draft before adding players")
         try:
             idx = self.teams.index(team)
         except ValueError:
             raise ValueError("The team is not part of the game!")
-        if player.dod:
+        if player.dod and not if_dead:
             raise ValueError("The player is already dead :(")
         if player.WID in self.ban_list:
             raise ValueError("The player is in the ban list")
