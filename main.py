@@ -37,6 +37,7 @@ file_handler.setLevel(LOG_LEVEL)
 
 logger = logging.getLogger(__name__)
 logger.handlers.clear()
+logger.setLevel(LOG_LEVEL)
 logger.addHandler(stream_handler)
 logger.addHandler(file_handler)
 
