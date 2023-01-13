@@ -11,6 +11,48 @@ GAME_STEPS = {
 
 PRINT_DATE_FORMAT = r"%d-%m-%Y"
 
+class Player:
+    def __init__(self, id=0, first_name="", last_name="", name="", username=""):
+        self.id = id
+        self.first_name = first_name
+        self.last_name = last_name
+        self.name = name
+        self.username = username
+    
+    def __repr__(self):
+        string = ""
+        if self.username:
+            string += f"{self.username}"
+        else:
+            string += f"{self.name}"
+        return f"Player({string})"
+
+    def __str__(self):
+        string = ""
+        if self.username:
+            string += f"{self.username}"
+        else:
+            string += f"{self.name}"
+        return f"{string}"
+    
+    def mention(self):
+        if self.username:
+            return f"@{self.username}"
+        else:
+            return f"[{self.name}](tg://user?id={self.id})"
+
+    def from_ptb(self, user):
+        self.id = user.id
+        self.first_name = user.first_name
+        self.last_name = user.last_name
+        self.name = user.name
+        self.username = user.username
+
+def player_from_ptb(user):
+    p = Player()
+    p.from_ptb(user)
+    return p
+
 class Person:
     def __init__(self, name, dob, dod=None, WID=None, citizenships=[], genders=[], occupations=[]):
         self.name = name
@@ -116,7 +158,7 @@ class Person:
 
 
 class Team:
-    def __init__(self, name="", owner=None, players=[], captain=None):
+    def __init__(self, name="", owner=Player(), players=[], captain=None):
         self.name = name
         self.owner = owner
         self.players = players
@@ -124,7 +166,7 @@ class Team:
         self.score = self._calculate_score()
 
     def __eq__(self, other):
-        return self.owner == other.owner and self.name == other.name
+        return self.owner.id == other.owner.id and self.name == other.name
 
     def _set_captain(self, captain):
         self.captain = None
@@ -227,6 +269,13 @@ class Game:
     
     def get_team_from_owner(self, owner):
         team = [t for t in self.teams if t.owner == owner]
+        if team:
+            return team[0]
+        else:
+            return None
+    
+    def get_team_from_user(self, user):
+        team = [t for t in self.teams if t.owner.id == user.id]
         if team:
             return team[0]
         else:

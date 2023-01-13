@@ -3,12 +3,13 @@ import os
 import random
 import requests
 from dotenv import load_dotenv
-import ipdb
+import pdb
 import yaml
 
-from telegram.ext import CallbackContext, PicklePersistence, Updater, CommandHandler, MessageHandler, Filters
-from telegram import Update, ReplyKeyboardMarkup, ParseMode
-from telegram.utils.helpers import escape_markdown
+
+from telegram import Update
+from telegram.ext import ApplicationBuilder ,ContextTypes, filters, PicklePersistence, CommandHandler
+from telegram.helpers import escape_markdown
 
 from functions.wikidata import get_person
 from functions.fantamorto import Game, Team, GAME_STEPS
@@ -21,21 +22,24 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Make bot persistent
-my_persistence = PicklePersistence(filename='fantamorto-persistence.ptb')
+my_persistence = PicklePersistence(filepath='fantamorto-persistence_v20.ptb')
 
 # Constants
 DEFAULT_FANTAMORTO_TEAM_SIZE = 10
 
 # Global variables
 load_dotenv()
-TOKEN = os.getenv("TOKEN")
+TOKEN = os.getenv("TOKEN", "")
 CHAT_DATA_KEY = "game"
 BAN_LIST_FILE = "ban_list.yaml"
 
 # Functions
-def help_command(update: Update, context: CallbackContext) -> None:
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /help is issued."""
-    update.message.reply_text(
+    # logging
+    logger.debug(f'Chat {update.effective_chat.id} - Help') # type: ignore
+
+    await update.message.reply_text(
         "This bot allows to play Fantamorto in a group!\n"
         + "The rules of the game are taken from https://www.reddit.com/r/Fantamorto/comments/ylseuy/fantamorto_edizione_2023_iscrizioni_aperte/\n"
         + "1. To start a new game type `/start`\n"
@@ -47,33 +51,40 @@ def help_command(update: Update, context: CallbackContext) -> None:
         + "6. To check the current ranking use `/ranking`\n"
         + "\nEnjoy! But do not try to help the Death do his work!"
     )
-    # logging
-    logger.debug(f'Chat {update.effective_chat.id} - Help') # type: ignore
+    
     return
 
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start the Fantamorto game"""
     game = get_chat_game(context)
     if game:
-        update.message.reply_text(
+        await update.message.reply_text(
             "A game of Fantamorto is already in progress in this group.")
+        return
     else:
+        chat_id = update.effective_chat
+        logger.info(f"Chat {chat_id}: New game")
         with open(BAN_LIST_FILE, 'r') as f:
             ban_list = yaml.load(f, Loader=yaml.FullLoader)
-        game = Game(team_size=DEFAULT_FANTAMORTO_TEAM_SIZE, ban_list=ban_list) # type: ignore
-        context.chat_data[CHAT_DATA_KEY] = game
-        update.message.reply_text(
+        game = Game(team_size=DEFAULT_FANTAMORTO_TEAM_SIZE, ban_list=ban_list)
+        context.chat_data[CHAT_DATA_KEY] = game # type: ignore
+        await update.message.reply_text(
             "Welcome to Fantamorto!\n"
             +f"Each player can add up to {game.team_size} real, alive people with a page on wikidata.org.\n"
             +"To join the game send the command /join")
+        return
 
 
-def stop(update: Update, context: CallbackContext):
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Stop a Fantamorto game"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
+    await update.message.reply_text("Ti ammazzo")
+    chat_id = update.effective_chat
+    logger.info(f"Chat {chat_id}: Stop game")
+    return
     end_msg = "The game has ended!\n"
     if game.ranking:
         end_msg += "Here the final ranking\n"
@@ -81,73 +92,83 @@ def stop(update: Update, context: CallbackContext):
             end_msg += f"{name}: {score}\n"
     end_msg += "To start a new game send /start"
     del context.chat_data[CHAT_DATA_KEY] # type: ignore
-    update.message.reply_text(end_msg)
+    await update.message.reply_text(end_msg)
 
 
-def join(update: Update, context: CallbackContext):
+async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Join the Fantamorto game"""
     game = get_chat_game(context)
+
+    if not game:
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        return
+    
+    if game.status != GAME_STEPS["Starting"]:       
+        await update.message.reply_text("You can add players only before the draft")
+        return
+    
+    if not update.effective_user:
+        return
+    
+    # Team name
     if context.args:
         team_name = ' '.join(context.args)
     elif update.effective_user.username:
         team_name = f"Team {update.effective_user.username}"
     else:
         team_name = f"Team {update.effective_user.first_name}"
-
-    if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
-        return
-    
-    if game.status != GAME_STEPS["Starting"]:
-        update.message.reply_text("You can add players only before the draft")
-        return
+        
 
     team = Team(team_name, owner=update.effective_user)
 
     try:
         game.add_team(team)
     except ValueError as err:
-        update.message.reply_text(str(err))
+        await update.message.reply_text(str(err))
         return
+    chat_id = update.effective_chat
+    logging.info(f"Chat: {chat_id}: User {update.effective_user} joined the game with the team {team_name}")
 
-    update.message.reply_text("You have successfully joined the game. When all the players have joined you can send the command /draft to start the draft")
+    await update.message.reply_text("You have successfully joined the game. When all the players have joined you can send the command /draft to start the draft")
 
 
-def draft(update: Update, context: CallbackContext):
+async def draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start the draft for Fantamorto game"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        return
+
+    if game.status != GAME_STEPS["Starting"]:
+        await update.message.reply_text("You can start the draft only at the beginning of the game. If you want to start a new game send /stop and then /start again")
         return
 
     if len(game.teams) < 1:
-        update.message.reply_text("There should be at least one player! To join the the game send the command /join")
+        await update.message.reply_text("There should be at least one player! To join the the game send the command /join")
         return
 
-    # TODO: Start draft
-    if game.status != GAME_STEPS["Starting"]:
-        update.message.reply_text("You can start the draft only at the beginning of the game. If you want to start a new game send /stop and then /start again")
-        return
     game.start_draft()
+
     current_drafter = game.get_current_drafter()
-    if current_drafter.owner.username:
-        mention = f"@{current_drafter.owner.username}"
-    else:
-        mention = f"[{current_drafter.owner.first_name}](tg://user?id={current_drafter.owner.id})"
-    update.message.reply_markdown_v2(
-            f"The team {escape_markdown(current_drafter.name, version=2)} \({mention}\) must pick the next person"
+
+    chat_id = update.effective_chat
+    logging.info(f"Chat: {chat_id}: Draft Started") 
+    logging.info(f"Chat: {chat_id}: Current drafter {current_drafter.name}")
+
+    await update.message.reply_markdown_v2(
+            f"The team {escape_markdown(current_drafter.name, version=2)} \({current_drafter.owner.mention_markdown_v2()}\) must pick the next person"
             +f"You still have {game.team_size - len(current_drafter.players)} persons left\!")
     return
 
 
-def draft_order(update: Update, context: CallbackContext):
+async def draft_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get the draft order for Fantamorto game"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     if game.status != GAME_STEPS["Draft"]:
-        update.message.reply_text("You have to start the draft to get the draft order")
+        await update.message.reply_text("You have to start the draft to get the draft order")
         return
     
     current_drafter = game.get_current_drafter()
@@ -156,28 +177,31 @@ def draft_order(update: Update, context: CallbackContext):
     msg += f"The draft order is:\n"
     for idx, t in enumerate(game.draft_order):
         msg += f"{idx}. {t.name} ({t.owner.name})\n"
-    update.message.reply_text(msg)
+    await update.message.reply_text(msg)
 
 
-def add(update: Update, context: CallbackContext):
+async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Add a person to the player team"""
     game = get_chat_game(context)
-    if not game:
-        update.effective_message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+    if not update.effective_message:
         return
-    if not context.args:
-        update.effective_message.reply_text("You have to specify a name or a Wikimedia ID adter the command /add. For example `/add Silvio Berlusconi` or `/add Q11860`")
+    if not game:
+        await update.effective_message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     if game.status != GAME_STEPS["Draft"]:
-        update.effective_message.reply_text("You have to start the draft to add players")
+        await update.effective_message.reply_text("You have to start the draft to add players")
         return
-    team = game.get_team_from_owner(owner=update.effective_user)
+    if not context.args:
+        await update.effective_message.reply_text("You have to specify a name or a Wikimedia ID adter the command /add. For example `/add Silvio Berlusconi` or `/add Q11860`")
+        return
+    
+    team = game.get_team_from_user(user=update.effective_user)
     if not team:
-        update.effective_message.reply_text("You are not part of the game :( Join with /join")
+        await update.effective_message.reply_text("You are not part of the game :( Join with /join")
         return
 
     if len(team.players) >= game.team_size:
-        update.effective_message.reply_text(f"You already have {game.team_size} players")
+        await update.effective_message.reply_text(f"You already have {game.team_size} players")
         return
 
     current_drafter = game.get_current_drafter()
@@ -187,7 +211,7 @@ def add(update: Update, context: CallbackContext):
             current_drafter_owner_mention = f"@{current_drafter.owner.username}"
         else:
             current_drafter_owner_mention = f"[{current_drafter.owner.name}](tg://user?id={current_drafter.owner.id})"
-        update.effective_message.reply_markdown_v2(
+        await update.effective_message.reply_markdown_v2(
             f"Sorry, it is not your turn\.\nThe team {escape_markdown(current_drafter.name, version=2)} \({current_drafter_owner_mention}\) must pick the next person\n"
             +f"He still has {game.team_size - len(current_drafter.players)} persons left\!")
         return
@@ -197,33 +221,36 @@ def add(update: Update, context: CallbackContext):
     try:
         persons = get_person(person_name)
         if len(persons) == 0:
-            update.effective_message.reply_text("I couldn't find any match. Try to send directly the Wikimedia ID")
+            await update.effective_message.reply_text("I couldn't find any match. Try to send directly the Wikimedia ID")
             return
         if len(persons) > 1:
-            msg = f"I found multiple persons for {person_name}\. Please send the WID of the one you want\n"
+            msg = f"I found multiple persons for {escape_markdown(person_name, version=2)}\. Please send the WID of the one you want\n"
             msg += "WID\tAGE\tOCCUPATIONS\tPOINTS\n"
             for idx, p in enumerate(persons):
                 msg += f"{idx+1}: [{p.WID}](http://www.wikidata.org/entity/{p.WID})\t{p.age}y\t{', '.join(p.occupations)}\t{p.calculate_score()}pt\n"
-            update.effective_message.reply_markdown_v2(msg)
+            await update.effective_message.reply_markdown_v2(msg)
             return
         else:
             person = persons[0]
             added_person = game.add_player(team=team, player=person)
 
     except requests.ConnectionError:
-        update.effective_message.reply_text("There is a connection problem with wikidata. Try later!")
+        await update.effective_message.reply_text("There is a connection problem with wikidata. Try later!")
         return
 
     except ValueError as err:
-        update.effective_message.reply_text(f"There was an error: {err}")
+        await update.effective_message.reply_text(f"There was an error: {err}")
         return
     
     # This should never happen
     if not added_person:
-        update.effective_message.reply_text(f"For some reason I couldn't add any person. Sorry :(")
+        await update.effective_message.reply_text(f"For some reason I couldn't add any person. Sorry :(")
         return
     
-    update.effective_message.reply_markdown_v2(
+    chat_id = update.effective_chat
+    logging.info(f"Chat: {chat_id}: Team {team.name} added {person.name}") 
+    
+    await update.effective_message.reply_markdown_v2(
         f"{escape_markdown(team.name, version=2)} has as a new player\!\n"
         +f"[{escape_markdown(person.name, version=2)}](http://www.wikidata.org/entity/{person.WID}) "
         +f"\({escape_markdown(', '.join(person.genders), version=2)}\) "
@@ -234,31 +261,72 @@ def add(update: Update, context: CallbackContext):
         )
 
     # If all players are selected ask to select remaining captains!
-    if all(len(t.players) == game.team_size for t in game.teams):
-        update.effective_message.reply_text("All the teams are complete!")
+    if all(len(t.players) >= game.team_size for t in game.teams):
+        logging.info(f"Chat: {chat_id}: All teams complete") 
+        await update.effective_message.reply_text("All the teams are complete!")
         if all(t.has_captain() for t in game.teams):
             game.start_game()
-            update.effective_message.reply_text("All the teams have a captain! Let's start the game!")
+            logging.info(f"Chat: {chat_id}: Game starts") 
+            await update.effective_message.reply_text("All the teams have a captain! Let's start the game!")
             return
         else:
             game.start_captain()
-            update.effective_message.reply_text("Now select the captains with /captain [idx] where idx is the index of the player that you can get from /team")
+            await update.effective_message.reply_text("Now select the captains with /captain [idx] where idx is the index of the player that you can get from /team")
             return
     else:
-        next_drafter = game.next_drafter()
+        next_drafter_ok = False
+        next_drafter = None
+        while not next_drafter_ok:
+            next_drafter = game.next_drafter()
+            if len(next_drafter.players) < game.team_size:
+                next_drafter_ok = True
         if next_drafter.owner.username:
             mention = f"@{next_drafter.owner.username}"
         else:
             mention = f"[{next_drafter.owner.first_name}](tg://user?id={next_drafter.owner.id})"
-        update.effective_message.reply_markdown_v2(
+        logging.info(f"Chat: {chat_id}: Current drafter {next_drafter.name}")
+        await update.effective_message.reply_markdown_v2(
             escape_markdown(
                 f"{mention} it's your turn to draft!\n"
                 +f"You still have {game.team_size - len(next_drafter.players)} persons left!", version=2))
         return
 
-def info(update: Update, context: CallbackContext):
+async def fix_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    game = get_chat_game(context)
+    if not game:
+        await update.effective_message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        return
+    if game.status != GAME_STEPS["Draft"]:
+        await update.effective_message.reply_text("You have to start the draft to fix it")
+        return
+    drafter = game.get_current_drafter()
+
+    if len(drafter.players) < game.team_size:
+        await update.effective_message.reply_text("Draft order is already ok")
+        return
+    
+
+    while len(drafter.players) >= game.team_size:
+        drafter = game.next_drafter()
+    
+    chat_id = update.effective_chat
+    logging.info(f"Chat: {chat_id}: Draft is fixed") 
+
+    if drafter.owner.username:
+        mention = f"@{drafter.owner.username}"
+    else:
+        mention = f"[{drafter.owner.first_name}](tg://user?id={drafter.owner.id})"
+    await update.effective_message.reply_markdown_v2(
+        escape_markdown(
+            f"Probably I did something wrong... \n"
+            +f"{mention} it's your turn to draft!\n"
+            +f"You still have {game.team_size - len(drafter.players)} persons left!", version=2))
+    return
+    
+
+async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        update.effective_message.reply_text("You have to specify a name or a Wikimedia ID after the command /info. For example `/info Silvio Berlusconi` or `/info Q11860`")
+        await update.effective_message.reply_text("You have to specify a name or a Wikimedia ID after the command /info. For example `/info Silvio Berlusconi` or `/info Q11860`")
         return
     
     person_name = ' '.join(context.args)
@@ -266,27 +334,27 @@ def info(update: Update, context: CallbackContext):
     try:
         persons = get_person(person_name)
         if len(persons) == 0:
-            update.effective_message.reply_text("I couldn't find any match. Try to send directly the Wikimedia ID")
+            await update.effective_message.reply_text("I couldn't find any match. Try to send directly the Wikimedia ID")
             return
         if len(persons) > 1:
             msg = f"I found multiple persons for {escape_markdown(person_name, version=2)}\. Please send the WID of the one you want\n"
             msg += "WID\tAGE\tOCCUPATIONS\tPOINTS\n"
             for idx, p in enumerate(persons):
                 msg += f"{idx+1}: [{p.WID}](http://www.wikidata.org/entity/{p.WID})\t{p.age}y\t{escape_markdown(', '.join(p.occupations), version=2)}\t{p.calculate_score()}pt\n"
-            update.effective_message.reply_markdown_v2(msg)
+            await update.effective_message.reply_markdown_v2(msg)
             return
         else:
             person = persons[0]
 
     except requests.ConnectionError:
-        update.effective_message.reply_text("There is a connection problem with wikidata. Try later!")
+        await update.effective_message.reply_text("There is a connection problem with wikidata. Try later!")
         return
 
     except ValueError as err:
-        update.effective_message.reply_text(f"There was an error: {err}")
+        await update.effective_message.reply_text(f"There was an error: {err}")
         return
     
-    update.effective_message.reply_markdown_v2(
+    await update.effective_message.reply_markdown_v2(
         f"[{escape_markdown(person.name, version=2)}](http://www.wikidata.org/entity/{person.WID}) "
         +f"\({escape_markdown(', '.join(person.genders), version=2)}\) "
         +f"a famous {escape_markdown(', '.join(person.occupations), version=2)}\. "
@@ -295,38 +363,38 @@ def info(update: Update, context: CallbackContext):
         +f"In the event of a tragic fatality he will bring {person.calculate_score()} points to the team\.\n"
         )
 
-def get_chat_game(context: CallbackContext) -> Game:
+def get_chat_game(context: ContextTypes.DEFAULT_TYPE) -> Game:
     game = context.chat_data.get(CHAT_DATA_KEY, None) # type: ignore
     if game:
         game.update_structure()
     return game
 
 
-def cancel_draft(update: Update, context: CallbackContext):
+async def cancel_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel the draft"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     if game.status != GAME_STEPS["Draft"]:
-        update.message.reply_text("You can cancel the draft only when you are in the draft")
+        await update.message.reply_text("You can cancel the draft only when you are in the draft")
         return
     
     game.cancel_draft()
-    update.message.reply_text("The draft has been canceled. Send /draft to start again")
+    await update.message.reply_text("The draft has been canceled. Send /draft to start again")
 
 
-def all_persons(update: Update, context: CallbackContext):
+async def all_persons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get all the persons playing the game"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     all_persons = game.all_players
     alive = all_persons["alive"]
     dead = all_persons["dead"]
     if not alive and not dead:
-        update.message.reply_text("Noone is playing in this game.")
+        await update.message.reply_text("Noone is playing in this game.")
         return
     msg = "Here all the persons playing this game\n"
     if alive:
@@ -337,89 +405,96 @@ def all_persons(update: Update, context: CallbackContext):
         msg += "\> Playing and already dead\n"
         for k, p in dead:
             msg += f"[{escape_markdown(p.name, version=2)}](http://www.wikidata.org/entity/{k})\n"
-    update.message.reply_markdown_v2(msg)
+    await update.message.reply_markdown_v2(msg)
     return
 
-def update_ban_list(update: Update, context: CallbackContext):
+async def update_ban_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Update the ban list"""
     # TODO: make it an automatic job
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     with open(BAN_LIST_FILE, 'r') as f:
         ban_list = yaml.load(f, Loader=yaml.FullLoader)
     if game.ban_list == ban_list:
-        update.message.reply_text("Ban list is already up to date")
+        await update.message.reply_text("Ban list is already up to date")
         return
     game.update_ban_list(ban_list=ban_list)
     msg = "Ban list is updated\! Currently you can not select these players: \n"
     for wid, name in game.ban_list.items():
         msg += f"[{name}](http://www.wikidata.org/entity/{wid})\n"
-    update.message.reply_markdown_v2(msg)
+    await update.message.reply_markdown_v2(msg)
     return
 
 
-def captain(update: Update, context: CallbackContext):
+async def captain(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Set the captain for a given team"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     if not game.teams:
-        update.message.reply_text("There are no teams in the game. Add one with /join TEAM_NAME.")
+        await update.message.reply_text("There are no teams in the game. Add one with /join TEAM_NAME.")
         return
     if not context.args:
-        update.message.reply_text("You have to specify an index. You can find them with /team")
+        await update.message.reply_text("You have to specify an index. You can find them with /team")
         return
 
     team_owner = update.effective_user
     idx_player = ' '.join(context.args)
-    idx_player = int(idx_player)
-    team = game.get_team_from_owner(team_owner)
+    try:
+        idx_player = int(idx_player)
+    except ValueError:
+        await update.message.reply_text("You have to specify an index. Like 0, 1, 2... You can find them with /team")
+        return
+    if idx_player < 0:
+        await update.message.reply_text("You have to specify a positive index. Like 0, 1, 2... You can find them with /team")
+        return
+
+    team = game.get_team_from_user(team_owner)
     if game.status not in [GAME_STEPS["Draft"], GAME_STEPS["Captain"]] or not team:
-        update.message.reply_text("You must by in draft or right after to select a captain")
+        await update.message.reply_text("You must by in draft or right after to select a captain")
         return
 
     try:
         game.set_captain(team=team, idx=idx_player)
     except ValueError as err:
-        update.message.reply_text(str(err))
+        await update.message.reply_text(str(err))
         return
     remaining_captains = [t.has_captain() for t in game.teams if not t.has_captain()]
     if len(remaining_captains) == 0:
         game.start_game()
-        update.message.reply_text("All the teams are full! Let's start the game!")
+        await update.message.reply_text("All the teams are full! Let's start the game!")
         return
     else:
-        update.message.reply_text(f"There are still {len(remaining_captains)} teams without captain")
+        await update.message.reply_text(f"There are still {len(remaining_captains)} teams without captain")
         return
 
-def rename(update: Update, context: CallbackContext):
+async def rename(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Rename the player team"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     if not context.args:
-        update.message.reply_text("You have to specify a new name for your team")
+        await update.message.reply_text("You have to specify a new name for your team")
         return
-    team = game.get_team_from_owner(update.effective_user)
+    team = game.get_team_from_user(update.effective_user)
     team_name = ' '.join(context.args)
 
     game.rename_team(team, team_name)
 
-    update.message.reply_text(f"The name of your team is now: {team_name}")
+    await update.message.reply_text(f"The name of your team is now: {team_name}")
 
-
-def team(update: Update, context: CallbackContext):
+async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get the player team"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     if not game.teams:
-        update.message.reply_text("There are no teams in the game. Add one with /join TEAM_NAME.")
+        await update.message.reply_text("There are no teams in the game. Add one with /join TEAM_NAME.")
         return
     team_name = None
     team_owner = update.effective_user
@@ -432,7 +507,7 @@ def team(update: Update, context: CallbackContext):
         teams = game.get_team_from_name(team_name)
         msg = f"I found {len(teams)} teams called {team_name}\n"
     else:
-        teams = [game.get_team_from_owner(team_owner)]
+        teams = [game.get_team_from_user(team_owner)]
         msg = f"Here is your team!\n"
     if not teams:
         msg = "I couldn't find any team :("
@@ -455,17 +530,17 @@ def team(update: Update, context: CallbackContext):
                 else:
                     player_msg += f"💀 ({player.calculate_score()} pt)"
                 msg += f"{player_msg}\n"
-    update.message.reply_text(msg)
+    await update.message.reply_text(msg)
     return
 
-def all_teams(update: Update, context: CallbackContext):
+async def all_teams(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Get the player team"""
     game = get_chat_game(context)
     if not game:
-        update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
         return
     if not game.teams:
-        update.message.reply_text("There are no teams in the game. Add one with /join TEAM_NAME.")
+        await update.message.reply_text("There are no teams in the game. Add one with /join TEAM_NAME.")
         return
     msg = "These are the current teams:\n"
     for team in game.teams:
@@ -474,47 +549,43 @@ def all_teams(update: Update, context: CallbackContext):
         else:
             owner = team.owner.name
         msg += f"{owner}: {team.name}\n"
-    update.message.reply_text(msg)
+    await update.message.reply_text(msg)
     return
 
-def test_msg(update: Update, context: CallbackContext):
+async def test_msg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = ""
     if context.args:
         msg = ' '.join(context.args)
-    update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN_V2)
     return
 
 def main() -> None:
-    # Create the Updater and pass it your bot's token.
-    updater = Updater(TOKEN, persistence=my_persistence) # type: ignore
-    # Get the dispatcher to register handlers
-    dispatcher = updater.dispatcher
+
+    # Get the application to register handlers
+    application = ApplicationBuilder().token(TOKEN).persistence(persistence=my_persistence).build()
 
     # on different commands - answer in Telegram
-    dispatcher.add_handler(CommandHandler("start", start, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("stop", stop, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("help", help_command, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("join", join, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("draft", draft, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("add", add))
-    dispatcher.add_handler(CommandHandler("team", team, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("captain", captain, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("rename", rename, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("all_teams", all_teams, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("update_ban", update_ban_list, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("cancel_draft", cancel_draft, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("draft_order", draft_order, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("all_persons", all_persons, filters=~Filters.update.edited_message))
-    dispatcher.add_handler(CommandHandler("info", info))
-    dispatcher.add_handler(CommandHandler("test_msg", test_msg))
+    application.add_handler(CommandHandler("start", start, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("stop", stop, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("help", help_command, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("join", join, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("draft", draft, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("add", add))
+    application.add_handler(CommandHandler("team", team, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("captain", captain, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("rename", rename, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("all_teams", all_teams, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("update_ban", update_ban_list, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("cancel_draft", cancel_draft, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("draft_order", draft_order, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("all_persons", all_persons, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("info", info))
+    application.add_handler(CommandHandler("test_msg", test_msg))
+    application.add_handler(CommandHandler("fix_draft", fix_draft))
 
     # Start the Bot
-    updater.start_polling()
+    application.run_polling()
 
-    # Block until the user presses Ctrl-C or the process receives SIGINT,
-    # SIGTERM or SIGABRT. This should be used most of the time, since
-    # start_polling() is non-blocking and will stop the bot gracefully.
-    updater.idle()
 
 
 if __name__ == '__main__':
