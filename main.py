@@ -682,6 +682,7 @@ async def superuser_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     chat = int(m.group("chat"))
+    msg = m.group("msg")
 
     await context.bot.send_message(
         chat_id=chat,
