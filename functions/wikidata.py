@@ -16,10 +16,10 @@ WIKIDATA_COLUMNS = {
 }
 
 
-def get_person(input, alive=True, lang="it"):
+def get_person(input, alive=True, lang="it", only_deads=False):
     persons = []
 
-    df = get_person_info(input, lang)
+    df = get_person_info(input, lang, only_deads=only_deads)
     if df.empty:
         return persons
 
@@ -40,21 +40,22 @@ def get_person(input, alive=True, lang="it"):
     return persons
 
 
-def update_persons(dict_persons: dict, lang="it") -> dict:
-    updated_persons = {}
-    for id, pers in dict_persons.items():
-        updated_pers = get_person(id, alive=False, lang=lang)
-        if (pers.dod != updated_pers.dod or
-           pers.genders != updated_pers.genders or
-           pers.citizenships != updated_pers.citizenships or
-           pers.occupations != updated_pers.occupations):
-            updated_persons[id] = updated_pers
+def update_persons(ids: list, lang="it") -> list:
+    # updated_persons = {}
+    # for id, pers in dict_persons.items():
+    #     updated_pers = get_person(id, alive=False, lang=lang, only_deads=True)
+    #     if (pers.dod != updated_pers.dod or
+    #        pers.genders != updated_pers.genders or
+    #        pers.citizenships != updated_pers.citizenships or
+    #        pers.occupations != updated_pers.occupations):
+    #         updated_persons[id] = updated_pers
+    updated_persons = get_person(ids, alive=False, lang=lang, only_deads=True)
     return updated_persons
+ 
 
-
-def get_person_info(input: str, lang: str) -> pd.DataFrame:
+def get_person_info(input: str, lang: str, only_deads: bool = False) -> pd.DataFrame:
     if type(input) is list:
-        query = get_query_from_multi_ids(ids=input, lang=lang)
+        query = get_query_from_multi_ids(ids=input, lang=lang, only_deads=only_deads)
     elif re.match(WIKIMEDIA_ID_FORMAT, input):
         query = get_query_from_id(id=input, lang=lang)
     else:
@@ -79,7 +80,7 @@ def get_person_info(input: str, lang: str) -> pd.DataFrame:
 
         # if not is_unique_person(df):
         #     raise ValueError("Too many results, try to directly send the Wikimedia ID")
-
+     
         return df
     else:
         # The request was not successful, so return None
@@ -124,23 +125,39 @@ def get_query_from_id(id, lang):
     }}
     """.format(lang, id)
 
-def get_query_from_multi_ids(ids, lang):
+def get_query_from_multi_ids(ids, lang, only_deads=False):
     ids = [f"wd:{id}" for id in ids]
     ids_txt = ", ".join(ids)
-    return """
-    SELECT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?genderLabel ?countryOfCitizenshipLabel ?occupationLabel
-    WHERE
-    {{
-      ?person wdt:P31 wd:Q5 .  # ?person is a human
-      ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth
-      OPTIONAL {{ ?person wdt:P570 ?dateOfDeath . }}  # ?person has a date of death (optional)
-      OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
-      OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
-      OPTIONAL {{ ?person wdt:P106 ?occupation . }}  # ?person has an occupation (optional)
-      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{},en". }}
-      FILTER (?person in ({}))  # QID is the Wikidata identifier for the person
-    }}
-    """.format(lang, ids_txt)
+    if only_deads:
+        return """
+        SELECT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?genderLabel ?countryOfCitizenshipLabel ?occupationLabel
+        WHERE
+        {{
+        ?person wdt:P31 wd:Q5 .  # ?person is a human
+        ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth
+        ?person wdt:P570 ?dateOfDeath .  # ?person has a date of death (optional)
+        OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
+        OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
+        OPTIONAL {{ ?person wdt:P106 ?occupation . }}  # ?person has an occupation (optional)
+        SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{},en". }}
+        FILTER (?person in ({}))  # QID is the Wikidata identifier for the person
+        }}
+        """.format(lang, ids_txt)
+    else:
+        return """
+        SELECT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?genderLabel ?countryOfCitizenshipLabel ?occupationLabel
+        WHERE
+        {{
+        ?person wdt:P31 wd:Q5 .  # ?person is a human
+        ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth
+        OPTIONAL {{ ?person wdt:P570 ?dateOfDeath . }}  # ?person has a date of death (optional)
+        OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
+        OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
+        OPTIONAL {{ ?person wdt:P106 ?occupation . }}  # ?person has an occupation (optional)
+        SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{},en". }}
+        FILTER (?person in ({}))  # QID is the Wikidata identifier for the person
+        }}
+        """.format(lang, ids_txt)
 
 def get_query_from_name(name, lang):
     return """

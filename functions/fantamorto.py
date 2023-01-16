@@ -64,7 +64,6 @@ class Person:
         self.occupations = occupations
         self.is_captain = False
         self.is_first_death = False
-        self.score = None
 
     def __eq__(self, other):
         return self.WID == other.WID
@@ -106,6 +105,35 @@ class Person:
             return years + 1
         else:
             return years
+    
+    @property
+    def gonzales(self):
+        gonzales = False
+        if self.dod is not None and self.dod.month == 1:
+            gonzales = True
+        return gonzales
+    
+    @property
+    def cesarini(self):
+        cesarini = False
+        if self.dod is not None and self.dod.month == 12 and self.dod.day >= 25:
+            cesarini = True
+        return cesarini
+    
+    @property
+    def club27(self):
+        return self.age == 27
+    
+    @property
+    def birthday(self):
+        birthday = False
+        if self.dod is not None and self.dob is not None and self.dod.month == self.dob.month and self.dod.day == self.dob.day:
+            birthday = True
+        return birthday
+    
+    @property
+    def score(self):
+        return self.calculate_score()
 
     def calculate_score(self):
         basic_score = 100 - self.age
@@ -114,17 +142,13 @@ class Person:
         first = 5 if self.is_first_death else 0
 
         # Speedy gonzales
-        gonzales = 0
-        if self.dod is not None and self.dod.month == 1:
-            gonzales = 3
+        gonzales = 3 if self.gonzales else 0
 
         # Zona cesarini
-        cesarini = 0
-        if self.dod is not None and self.dod.month == 12 and self.dod.day >= 25:
-            cesarini = 5
+        cesarini = 5 if self.cesarini else 0
 
         # 27 club
-        club27 = 27 if self.age == 27 else 0
+        club27 = 27 if self.club27 else 0
 
         # Globetrotter
         globetrotter = max(0, 2 * (len(self.citizenships) - 1))
@@ -133,9 +157,7 @@ class Person:
         inclusivity = max(0, 5 * (len(self.genders) - 1))
 
         # Happy birthday
-        birthday = 0
-        if self.dod is not None and self.dob is not None and self.dod.month == self.dob.month and self.dod.day == self.dob.day:
-            birthday = 10
+        birthday = 10 if self.birthday else 0
 
         # Jack of all trades
         jack = max(0, 2 * (len(self.occupations) - 1))
@@ -163,7 +185,6 @@ class Team:
         self.owner = owner
         self.players = players
         self.captain = self._set_captain(captain)
-        self.score = self._calculate_score()
 
     def __eq__(self, other):
         return self.owner.id == other.owner.id and self.name == other.name
@@ -177,13 +198,13 @@ class Team:
             else:
                 self.players[idx].is_captain = False
 
+    @property
+    def score(self):
+        self._calculate_score()
+
     def _calculate_score(self):
         scores = [p.score if p.dod else 0 for p in self.players]
-        self.score = sum(scores)
-
-    def calculate_score(self):
-        self._calculate_score()
-        return self.score
+        return sum(scores)
 
     def set_captain(self, captain):
         self._set_captain(captain)
@@ -325,20 +346,35 @@ class Game:
             self.first_death = []
         else:
             update_first_death = False
-        for id, player in updated_players.items():
-            if id in self.all_players['alive']:
-                del self.all_players['alive'][id]
+        for player in updated_players.items():
+            if player.WID in self.all_players['alive']:
+                del self.all_players['alive'][player.WID]
                 if update_first_death:
                     player.is_first_death = True
                     self.first_death.append(player)
-                self.all_players['dead'][id] = player
+                self.all_players['dead'][player.WID] = player
                 for t in self.teams:
                     if player in t.players:
                         t.update_player(player)
     
     def update_ban_list(self, ban_list):
         self.ban_list = ban_list
+    
+    def get_player(self, player):
+        info = {"team": None, "player": None}
+        if player.WID not in self.all_players['alive'] and player.id not in self.all_players['dead']:
+            raise ValueError("The player is not part of the game!")
+        elif player.WID in self.all_players['alive']:
+            p = self.all_players["alive"][player.WID]
+        else:
+            p = self.all_players["dead"][player.WID]
+        
+        for team in self.teams:
+            if p in team.players:
+                info["team"] = team
+                info["player"] = p
+                return info
 
     @property
     def ranking(self):
-        return ((t.name, t.score) for t in self.teams)
+        return sorted(self.teams, key=lambda x: x.score, reverse=True)

@@ -8,13 +8,14 @@ import pdb
 import yaml
 import re
 import time
+from datetime import timedelta
 
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder ,ContextTypes, filters, PicklePersistence, CommandHandler
 from telegram.helpers import escape_markdown
 
-from functions.wikidata import get_person
+from functions.wikidata import get_person, update_persons
 from functions.fantamorto import Game, Team, GAME_STEPS
 
 
@@ -548,11 +549,23 @@ async def team(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 player_msg += f"{player.name} - {player.age}y "
                 if not player.dod:
                     if str(player.WID) == "Q9671":
-                        player_msg += f"🌱 ({player.calculate_score()} pt)"
+                        player_msg += f"🌱 "
                     else:
-                        player_msg += f"🙂 ({player.calculate_score()} pt)"
+                        player_msg += f"🙂 "
                 else:
-                    player_msg += f"💀 ({player.calculate_score()} pt)"
+                    player_msg += f"💀 "
+                    if player.is_first_death:
+                        player_msg += "🩸 "
+                    if player.gonzales:
+                        player_msg += "❄️ "
+                    if player.cesarini:
+                        player_msg += "⛄️ "
+                    if player.club27:
+                        player_msg += "🤙 "
+                    if player.birthday:
+                        player_msg += "🎂 "
+
+                player_msg += f"({player.calculate_score()} pt)"
                 msg += f"{player_msg}\n"
     await update.message.reply_text(msg)
     return
@@ -763,14 +776,44 @@ async def superuser_substitute(update: Update, context: ContextTypes.DEFAULT_TYP
     await context.bot.send_message(
         chat_id=chat,
         text=msg)
-
-
     return 
+
+async def update_deads(context: ContextTypes.DEFAULT_TYPE):
+    for chat in context.application.chat_data:
+        game = context.application.chat_data[chat].get("game")
+        if not game:
+            continue
+        alive_players = list(game.all_players['alive'].keys())
+        dead_players = update_persons(ids = alive_players)
+        if dead_players:
+            game.update_alive_players(dead_players)
+        for p in dead_players:
+            info = game.get_player(p)
+            msg = "+++ MORTO +++\n"
+            msg += f"{info['player'].name} ormai è solo un cadavere!\n"
+            msg += f"Gli unici a rallegrarsi sono i tifosi di {info['team'].name} per i quali la morte porta {info['player'].score}\n"
+            msg += "È MORTO! MORTO MORTO MORTO!"
+            await context.bot.send_message(
+                chat_id=chat,
+                text=msg)
+
+
+async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    game = get_chat_game(context)
+    if not game:
+        await update.message.reply_text("There is no game of Fantamorto in progress in this group. Start a new game by using the /start command.")
+        return
+    
+    msg = "RANKING\n"
+    for idx, team in enumerate(game.ranking):
+        msg += f"{idx+1}. {team.score} - {team.name}\n"
+    await update.message.reply_text(msg)
 
 def main() -> None:
 
     # Get the application to register handlers
     application = ApplicationBuilder().token(TOKEN).persistence(persistence=my_persistence).build()
+    job_queue = application.job_queue
 
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler("start", start, filters=~filters.UpdateType.EDITED_MESSAGE))
@@ -792,6 +835,9 @@ def main() -> None:
     application.add_handler(CommandHandler("fix_draft", fix_draft))
     application.add_handler(CommandHandler("superuser_add", superuser_add, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("superuser_send", superuser_send, filters=~filters.UpdateType.EDITED_MESSAGE))
+
+    if job_queue:
+        job_queue.run_repeating(update_deads, interval=timedelta(hours=1))
 
     # Start the Bot
     application.run_polling()
