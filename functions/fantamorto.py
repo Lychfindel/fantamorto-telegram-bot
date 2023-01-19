@@ -200,7 +200,7 @@ class Team:
 
     @property
     def score(self):
-        self._calculate_score()
+        return self._calculate_score()
 
     def _calculate_score(self):
         scores = [p.score if p.dod else 0 for p in self.players]
