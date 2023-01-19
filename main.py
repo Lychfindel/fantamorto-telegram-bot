@@ -180,8 +180,13 @@ async def draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"Chat: {chat_id}: Draft Started") 
     logging.info(f"Chat: {chat_id}: Current drafter {current_drafter.name}")
 
+    if current_drafter.owner.username:
+        current_drafter_owner_mention = f"@{current_drafter.owner.username}"
+    else:
+        current_drafter_owner_mention = f"[{current_drafter.owner.name}](tg://user?id={current_drafter.owner.id})"
+
     await update.message.reply_markdown_v2(
-            f"The team {escape_markdown(current_drafter.name, version=2)} \({current_drafter.owner.mention_markdown_v2()}\) must pick the next person"
+            f"The team {escape_markdown(current_drafter.name, version=2)} \({current_drafter_owner_mention}\) must pick the next person"
             +f"You still have {game.team_size - len(current_drafter.players)} persons left\!")
     return
 
@@ -835,6 +840,7 @@ def main() -> None:
     application.add_handler(CommandHandler("fix_draft", fix_draft))
     application.add_handler(CommandHandler("superuser_add", superuser_add, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("superuser_send", superuser_send, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("ranking", ranking, filters=~filters.UpdateType.EDITED_MESSAGE))
 
     if job_queue:
         job_queue.run_repeating(update_deads, interval=timedelta(hours=1))
