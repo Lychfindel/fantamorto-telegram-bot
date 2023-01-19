@@ -784,6 +784,7 @@ async def superuser_substitute(update: Update, context: ContextTypes.DEFAULT_TYP
     return 
 
 async def update_deads(context: ContextTypes.DEFAULT_TYPE):
+    logging.info(f"Updating deads")
     for chat in context.application.chat_data:
         game = context.application.chat_data[chat].get("game")
         if not game:
