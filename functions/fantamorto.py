@@ -346,7 +346,7 @@ class Game:
             self.first_death = []
         else:
             update_first_death = False
-        for player in updated_players.items():
+        for player in updated_players:
             if player.WID in self.all_players['alive']:
                 del self.all_players['alive'][player.WID]
                 if update_first_death:
