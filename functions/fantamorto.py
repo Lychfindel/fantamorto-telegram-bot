@@ -224,12 +224,13 @@ class Team:
     def update_player(self, player):
         if player not in self.players:
             raise ValueError("The player is not part of this team")
-        for p in self.players:
-            p.dod = player.dod
-            p.citizenships = player.citizenships
-            p.genders = player.genders
-            p.occupations = player.occupations
-            p.is_first_death = player.is_first_death
+        idx_player = self.players.index(player)
+        p = self.players[idx_player]
+        p.dod = player.dod
+        p.citizenships = player.citizenships
+        p.genders = player.genders
+        p.occupations = player.occupations
+        p.is_first_death = player.is_first_death
 
 
 class Game:
