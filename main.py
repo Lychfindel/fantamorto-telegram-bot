@@ -803,6 +803,26 @@ async def update_deads(context: ContextTypes.DEFAULT_TYPE):
                 chat_id=chat,
                 text=msg)
 
+async def superuser_fix_deads(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.effective_user or update.effective_user.username != SUPERUSER:
+        await update.message.reply_text(f"Only my dad can do this. You are {update.effective_user.username}, my dad is {SUPERUSER}")
+        return
+    for chat in context.application.chat_data:
+        game = context.application.chat_data[chat].get("game")
+        if not game:
+            continue
+        for id, p in game.all_players["alive"].items():
+            if p.dod:
+                p.dod = None
+                msg = f"{p.name} is alive again"
+                await update.message.reply_text(msg)
+        for id, p in game.all_players["dead"].items():
+            p.dod = None
+            game.all_players["alive"][id] = p
+            msg = f"{p.name} is back to life"
+            await update.message.reply_text(msg)
+        game.all_players["dead"] = {}
+
 
 async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game = get_chat_game(context)
@@ -842,6 +862,7 @@ def main() -> None:
     application.add_handler(CommandHandler("superuser_add", superuser_add, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("superuser_send", superuser_send, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("ranking", ranking, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("superuser_fix_deads", superuser_fix_deads, filters=~filters.UpdateType.EDITED_MESSAGE))
 
     if job_queue:
         job_queue.run_repeating(update_deads, interval=timedelta(hours=1))
