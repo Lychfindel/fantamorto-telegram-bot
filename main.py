@@ -433,7 +433,7 @@ async def all_persons(update: Update, context: ContextTypes.DEFAULT_TYPE):
             msg += f"[{escape_markdown(p.name, version=2)}](http://www.wikidata.org/entity/{k})\n"
     if dead:
         msg += "\> Playing and already dead\n"
-        for k, p in dead:
+        for k, p in dead.items():
             msg += f"[{escape_markdown(p.name, version=2)}](http://www.wikidata.org/entity/{k})\n"
     await update.message.reply_markdown_v2(msg)
     return
