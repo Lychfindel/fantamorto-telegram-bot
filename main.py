@@ -152,7 +152,7 @@ async def join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(str(err))
         return
     chat_id = update.effective_chat
-    logging.info(f"Chat: {chat_id}: User {update.effective_user} joined the game with the team {team_name}")
+    logger.info(f"Chat: {chat_id}: User {update.effective_user} joined the game with the team {team_name}")
 
     await update.message.reply_text("You have successfully joined the game. When all the players have joined you can send the command /draft to start the draft")
 
@@ -177,8 +177,8 @@ async def draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_drafter = game.get_current_drafter()
 
     chat_id = update.effective_chat
-    logging.info(f"Chat: {chat_id}: Draft Started") 
-    logging.info(f"Chat: {chat_id}: Current drafter {current_drafter.name}")
+    logger.info(f"Chat: {chat_id}: Draft Started") 
+    logger.info(f"Chat: {chat_id}: Current drafter {current_drafter.name}")
 
     if current_drafter.owner.username:
         current_drafter_owner_mention = f"@{current_drafter.owner.username}"
@@ -278,7 +278,7 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     chat_id = update.effective_chat
-    logging.info(f"Chat: {chat_id}: Team {team.name} added {person.name}") 
+    logger.info(f"Chat: {chat_id}: Team {team.name} added {person.name}") 
     
     await update.effective_message.reply_markdown_v2(
         f"{escape_markdown(team.name, version=2)} has as a new player\!\n"
@@ -292,11 +292,11 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # If all players are selected ask to select remaining captains!
     if all(len(t.players) >= game.team_size for t in game.teams):
-        logging.info(f"Chat: {chat_id}: All teams complete") 
+        logger.info(f"Chat: {chat_id}: All teams complete") 
         await update.effective_message.reply_text("All the teams are complete!")
         if all(t.has_captain() for t in game.teams):
             game.start_game()
-            logging.info(f"Chat: {chat_id}: Game starts") 
+            logger.info(f"Chat: {chat_id}: Game starts") 
             await update.effective_message.reply_text("All the teams have a captain! Let's start the game!")
             return
         else:
@@ -314,7 +314,7 @@ async def add(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mention = f"@{next_drafter.owner.username}"
         else:
             mention = f"[{next_drafter.owner.first_name}](tg://user?id={next_drafter.owner.id})"
-        logging.info(f"Chat: {chat_id}: Current drafter {next_drafter.name}")
+        logger.info(f"Chat: {chat_id}: Current drafter {next_drafter.name}")
         await update.effective_message.reply_markdown_v2(
             escape_markdown(
                 f"{mention} it's your turn to draft!\n"
@@ -340,7 +340,7 @@ async def fix_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
         drafter = game.next_drafter()
     
     chat_id = update.effective_chat
-    logging.info(f"Chat: {chat_id}: Draft is fixed") 
+    logger.info(f"Chat: {chat_id}: Draft is fixed") 
 
     if drafter.owner.username:
         mention = f"@{drafter.owner.username}"
@@ -658,7 +658,7 @@ async def superuser_add(update: Update, context: ContextTypes.DEFAULT_TYPE):
     #         players = get_person(person)
     #         time.sleep(5)
     #     except requests.exceptions.ConnectionError:
-    #         logging.info("SUPERUSER_ADD: Sleep a little bit for Wikidata")
+    #         logger.info("SUPERUSER_ADD: Sleep a little bit for Wikidata")
     #         time.sleep(20)
     #         players = get_person(person)
     #         time.sleep(5)
@@ -784,7 +784,7 @@ async def superuser_substitute(update: Update, context: ContextTypes.DEFAULT_TYP
     return 
 
 async def update_deads(context: ContextTypes.DEFAULT_TYPE):
-    logging.info(f"Updating deads")
+    logger.info(f"Updating deads")
     for chat in context.application.chat_data:
         game = context.application.chat_data[chat].get("game")
         if not game:
