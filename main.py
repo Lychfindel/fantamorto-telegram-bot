@@ -818,9 +818,11 @@ async def superuser_fix_deads(update: Update, context: ContextTypes.DEFAULT_TYPE
                 await update.message.reply_text(msg)
         for id, p in game.all_players["dead"].items():
             p.dod = None
+            p.is_first_death = False
             game.all_players["alive"][id] = p
             msg = f"{p.name} is back to life"
             await update.message.reply_text(msg)
+        game.first_death = None
         game.all_players["dead"] = {}
 
 

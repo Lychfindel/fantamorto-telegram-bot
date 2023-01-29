@@ -342,28 +342,34 @@ class Game:
         return player
 
     def update_alive_players(self, updated_players):
+        earliest_death = None
         if not self.first_death:
             update_first_death = True
             self.first_death = []
         else:
             update_first_death = False
         for player in updated_players:
-            if player.WID in self.all_players['alive']:
+            if player.dod is not None and player.WID in self.all_players['alive']:
                 del self.all_players['alive'][player.WID]
-                if update_first_death:
-                    player.is_first_death = True
-                    self.first_death.append(player)
                 self.all_players['dead'][player.WID] = player
+                if update_first_death:
+                    if earliest_death is None:
+                        earliest_death = player
+                    elif player.dod < earliest_death.dod:
+                        earliest_death = player
+                
                 for t in self.teams:
                     if player in t.players:
                         t.update_player(player)
+        if earliest_death:
+            earliest_death.is_first_death = True
     
     def update_ban_list(self, ban_list):
         self.ban_list = ban_list
     
     def get_player(self, player):
         info = {"team": None, "player": None}
-        if player.WID not in self.all_players['alive'] and player.id not in self.all_players['dead']:
+        if player.WID not in self.all_players['alive'] and player.WID not in self.all_players['dead']:
             raise ValueError("The player is not part of the game!")
         elif player.WID in self.all_players['alive']:
             p = self.all_players["alive"][player.WID]
