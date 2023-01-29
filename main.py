@@ -816,6 +816,10 @@ async def superuser_fix_deads(update: Update, context: ContextTypes.DEFAULT_TYPE
                 p.dod = None
                 msg = f"{p.name} is alive again"
                 await update.message.reply_text(msg)
+            if p.is_first_death:
+                p.is_first_death = False
+                msg = f"{p.name} was not first death"
+                await update.message.reply_text(msg)
         for id, p in game.all_players["dead"].items():
             p.dod = None
             p.is_first_death = False
