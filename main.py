@@ -828,6 +828,8 @@ async def superuser_fix_deads(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(msg)
         game.first_death = None
         game.all_players["dead"] = {}
+        msg = f"Current deads are: {game.all_players['dead']}"
+        await update.message.reply_text(msg)
 
 
 async def ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
