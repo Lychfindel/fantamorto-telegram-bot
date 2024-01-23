@@ -81,6 +81,7 @@ class Commands:
         BotCommand("add", "add an athlet to your team"),
         BotCommand("team", "get your team info"),
         BotCommand("ranking", "get the the current table of the game"),
+        BotCommand("allTeams", "get a list of the teams in the game"),
         ]
 
 # General functions
@@ -484,6 +485,15 @@ async def on_team(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game
 
 @get_chat_game
 @active_game
+async def on_allTeams(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game, *args, **kwargs):
+    msg = f"There are {game.num_teams} teams in game:\n"
+    for team in game.teams:
+        msg += f"{team.name_escaped_html} ({team.owner_name})\n"
+    
+    await update.message.reply_html(msg)
+
+@get_chat_game
+@active_game
 @team_owner
 async def on_rename(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game, team: Team, *args, **kwargs):
     if not context.args:
@@ -543,6 +553,7 @@ def main() -> None:
     application.add_handler(CommandHandler("captain", on_captain, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler(["ranking", "table"], on_ranking, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("team", on_team, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler(["allTeams", "all_teams"], on_allTeams, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("rename", on_rename, filters=~filters.UpdateType.EDITED_MESSAGE))
 
     # Job queue
