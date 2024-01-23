@@ -81,7 +81,7 @@ class Commands:
         BotCommand("add", "add an athlet to your team"),
         BotCommand("team", "get your team info"),
         BotCommand("ranking", "get the the current table of the game"),
-        BotCommand("allTeams", "get a list of the teams in the game"),
+        BotCommand("allteams", "get a list of the teams in the game"),
         ]
 
 # General functions
@@ -553,7 +553,7 @@ def main() -> None:
     application.add_handler(CommandHandler("captain", on_captain, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler(["ranking", "table"], on_ranking, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("team", on_team, filters=~filters.UpdateType.EDITED_MESSAGE))
-    application.add_handler(CommandHandler(["allTeams", "all_teams"], on_allTeams, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler(["allteams", "all_teams"], on_allTeams, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("rename", on_rename, filters=~filters.UpdateType.EDITED_MESSAGE))
 
     # Job queue
