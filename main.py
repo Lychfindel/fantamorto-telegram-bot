@@ -21,10 +21,11 @@ from telegram.ext import ApplicationBuilder, Application ,ContextTypes, filters,
 from telegram.helpers import escape_markdown
 from telegram.constants import ParseMode
 
-from fantamorto.wikidata import get_athlet, update_athlets
+from fantamorto.wikidata import get_athlet, find_dead_athlets
 from fantamorto.game import Game, Status
 from fantamorto.team import Team
 from fantamorto.athlet import Athlet
+from fantamorto.bonus import Bonus
 
 from functions.utils import setupLogger
 from functions.emoji import Emoji
@@ -499,6 +500,9 @@ async def on_team(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game
         msg += f"{athlet_msg}\n"
 
     msg += f"**** BONUS *****\n"
+    if team.has_first_death:
+        msg += f"{Emoji.FIRST_DEATH} First death: {Bonus.FIRST_DEATH} pt\n"
+        msg += f"({', '.join([a.name_escaped_html for a in team.athlets if a in game.first_deaths])})\n"
     msg += f"{Emoji.INCLUSIVITY} Inclusivity: {team.inclusivity_score} pt\n"
     gender_dead = [f"<b>{g}</b>" for g in team.inclusivity]
     gender_alive = [g for g in team.all_genders if g not in team.inclusivity]
@@ -541,16 +545,19 @@ async def update_deads(context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
     alive_athlets_dict = {
         wiki_id: athlet for wiki_id, athlet in athlets_dict.items() if not athlet.is_dead
     }
-    dead_athlets = update_athlets(ids = alive_athlets_dict.keys)
+    dead_athlets = find_dead_athlets(ids = list(alive_athlets_dict.keys()))
+    all_games = []
     for athlet in dead_athlets:
         ath_in_dict = athlets_dict[athlet.wiki_id]
+        ath_in_dict.date_of_death = athlet.date_of_death
         # ath_in_dict.date_of_death = athlet.date_of_death
-        for game in ath_in_dict.games():
+        for game in ath_in_dict.games:
             game: Game
             teams = game.get_teams_with_athlet(ath_in_dict)
+            teams_names = [t.name_escaped_html for t in teams]
             msg = "+++ MORTO +++\n"
             msg += f"{ath_in_dict.name_escaped_html} ormai è solo un cadavere!\n"
-            msg += f"Gli unici a rallegrarsi sono i tifosi di {', '.join(teams)} per i quali la morte porta {ath_in_dict.score}\n"
+            msg += f"Gli unici a rallegrarsi sono i tifosi di {', '.join(teams_names)} per i quali la morte porta {ath_in_dict.score}\n"
             msg += "È MORTO! MORTO MORTO MORTO!"
     
             await context.bot.send_message(
@@ -558,7 +565,20 @@ async def update_deads(context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
                 text= msg,
                 parse_mode=ParseMode.HTML
             )
-            game.update_first_death()
+            all_games.append(game)
+    
+    for game in set(all_games):
+        first_death_teams = game.update_first_death(dead_athlets)
+        if first_death_teams:
+            teams_names = [t.name_escaped_html for t in first_death_teams]
+            msg = f"FIRST DEATH! {Emoji.FIRST_DEATH}\n"
+            msg += f"I punti per il primo sangue versato vanno a {', '.join(teams_names)}"
+            await context.bot.send_message(
+                chat_id = game.chat_id,
+                text= msg,
+                parse_mode=ParseMode.HTML
+            )
+    logger.info("End update deads")
 
 async def post_init(application: Application) -> None:
     await application.updater.bot.set_my_commands([])

@@ -159,7 +159,7 @@ class Game:
     def get_teams_with_athlet(self, athlet: Athlet) -> list[Team]:
         return [t for t in self.teams if athlet in t.athlets]
 
-    def update_first_death(self, new_dead_athlets: list[Athlet]) -> None:
+    def update_first_death(self, new_dead_athlets: list[Athlet]) -> list[Team]:
         if self.first_deaths:
             return []
         
@@ -175,12 +175,18 @@ class Game:
         first_date = dates_of_death[0]
 
         first_dead_athlets = [ath for ath in athlets_in_game if ath.date_of_death == first_date]
+        
+        self.first_deaths = first_dead_athlets
+
+        first_death_teams = []
 
         for ath in first_dead_athlets:
             for team in self.get_teams_with_athlet(ath):
                 team.has_first_death = True
-        
-        self.first_deaths = first_dead_athlets
+                if team not in first_dead_athlets:
+                    first_death_teams.append(team)
+
+        return first_death_teams
     
     def add_to_banlist(self, athlet: Athlet) -> None:
         self.ban_list.append(athlet)

@@ -66,7 +66,7 @@ def get_athlet(input:str|list[str], alive:bool=True, only_deads:bool=False) -> l
     return athlets
 
 
-def update_athlets(ids:list) -> list[Athlet]:
+def find_dead_athlets(ids:list[str]) -> list[Athlet]:
     # updated_athlets = {}
     # for id, pers in dict_athlets.items():
     #     updated_pers = get_athlet(id, alive=False, lang=lang, only_deads=True)
@@ -83,7 +83,7 @@ def get_athlet_info(input:str|list[str], only_deads:bool=False) -> pd.DataFrame:
     if type(input) is list or re.match(WIKIMEDIA_ID_FORMAT, input):
         query = get_query_sparql(input=input, is_id=True, only_deads=only_deads)
     else:
-        query = get_query_sparql(input=input, is_id=False, only_deads=False)
+        query = get_query_sparql(input=input, is_id=False, only_deads=only_deads)
     # Set the headers and parameters for the request
     # headers = {
     #     'Content-Type': 'application/x-www-form-urlencoded',
@@ -144,9 +144,13 @@ def get_query_sparql(input:str|list[str], is_id:bool=False, only_deads:bool=Fals
             {
                 SERVICE wikibase:label { bd:serviceParam wikibase:language "it,en". }
                 ?person wdt:P31 wd:Q5;
-                wdt:P569 ?dateOfBirth.
-                OPTIONAL { ?person wdt:P570 ?dateOfDeath. }
-
+                wdt:P569 ?dateOfBirth."""
+    if only_deads:
+        query += "?person wdt:P570 ?dateOfDeath."
+    else:
+        query += "OPTIONAL { ?person wdt:P570 ?dateOfDeath. }"
+                
+    query += """
                 OPTIONAL {
                     ?person p:P21 ?stG.
                     ?stG ps:P21 ?gender.
