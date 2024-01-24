@@ -219,7 +219,9 @@ def get_ordered_property(data:dict, propertyID:str) -> list[str]:
     prop_norm = []
     for property in prop_data:
         valueID = property['mainsnak']['datavalue']['value']['id']
-        if property["rank"] == "preferred":
+        if property["rank"] == "deprecated":
+            continue
+        elif property["rank"] == "preferred":
             prop_pref.append(valueID)
         else:
             prop_norm.append(valueID)
