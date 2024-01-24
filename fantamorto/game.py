@@ -32,7 +32,7 @@ class Game:
         self.ban_list = ban_list or []
         self.team_size = team_size
         self.status = Status.START
-        self.draft_order: list[Team] = None
+        self.draft_order: list[Team] = []
         self.current_drafter_idx: int = None
         self.first_deaths: list[Athlet] = []
         self.id = str(uuid.uuid4())
@@ -72,9 +72,17 @@ class Game:
         team.game = self.id
     
     def start_draft(self) -> None:
-        self.draft_order = [t for t in self.teams] # We copy the array so we can shuffle only the new one
-        random.shuffle(self.draft_order)
-        self.current_drafter_idx = 0
+        if self.draft_order is None:
+            self.draft_order = []
+        # We copy the array so we can shuffle only the new one
+        draft_order = [t for t in self.teams if t not in self.draft_order]
+        random.shuffle(draft_order)
+
+        self.draft_order += draft_order
+
+        if self.current_drafter_idx is None:
+            self.current_drafter_idx = 0
+        
         self.status = Status.DRAFT
     
     def advance_draft(self) -> Team:
@@ -89,7 +97,12 @@ class Game:
     
     def cancel_draft(self) -> None:
         for team in self.teams:
-            team.remove_all_athlets
+            team.remove_all_athlets()
+        self.draft_order = []
+        self.current_drafter_idx = None
+        self.status = Status.START
+    
+    def pause_draft(self) -> None:
         self.status = Status.START
     
     def start_game(self):

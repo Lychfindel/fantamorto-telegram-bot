@@ -75,6 +75,8 @@ class Commands:
         BotCommand("join", "join the game"),
         BotCommand("rename", "rename your team"),
         BotCommand("draft", "start the draft"),
+        BotCommand("pausedraft", "pause the current draft"),
+        BotCommand("canceldraft", "cancel the current draft"),
         BotCommand("draftorder", "get the next person during the draft"),
         BotCommand("info", "get info about an athlet"),
         BotCommand("captain", "add an athlet to your team"),
@@ -269,6 +271,34 @@ async def on_draft(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Gam
     await update.message.reply_html(
             f"The team {current_drafter} ({current_drafter.owner_mention}) must pick the next person\n"
             +f"You still have {game.team_size - current_drafter.num_athlets} athlets left!")
+
+@get_chat_game
+@active_game
+@game_creator
+async def on_pause_draft(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game, *args, **kwargs) -> None:
+    if game.status != Status.DRAFT:
+        await update.message.reply_text("You can pause the draft only when you are drafting")
+        return
+    pass
+
+    game.pause_draft()
+    logger.debug(f"Draft pause - Chat: {update.effective_chat}")
+
+    await update.message.reply_html("The draft is paused!\nNow new teams can join the game with /join.\nTo restart the draft send /draft")
+
+@get_chat_game
+@active_game
+@game_creator
+async def on_cancel_draft(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game, *args, **kwargs) -> None:
+    if game.status != Status.DRAFT:
+        await update.message.reply_text("You can cancel the draft only when you are drafting")
+        return
+    pass
+
+    game.cancel_draft()
+    logger.debug(f"Draft cancel - Chat: {update.effective_chat}")
+
+    await update.message.reply_html("The draft is cancelled!\nAll athlets have been dismissed!\nNow new teams can join the game with /join.\n To start a new draft send /draft")
 
 @get_chat_game
 @active_game
@@ -548,6 +578,8 @@ def main() -> None:
     application.add_handler(CommandHandler("join", on_join, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("draft", on_draft, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler(["draftorder", "draft_order", "order"], on_draft_order, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler(["canceldraft", "cancel_draft"], on_cancel_draft, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler(["pausedraft", "pause_draft"], on_pause_draft, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("info", on_info, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("add", on_add, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("captain", on_captain, filters=~filters.UpdateType.EDITED_MESSAGE))
