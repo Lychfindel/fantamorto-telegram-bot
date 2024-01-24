@@ -35,9 +35,6 @@ PROPERTIES_ID = {
 def get_athlet(input:str|list[str], alive:bool=True, only_deads:bool=False) -> list[Athlet]:
     athlets = []
 
-    import pdb
-    pdb.set_trace()
-
     # Retrieve basic info using Sparql
     df = get_athlet_info(input, only_deads=only_deads)
     if df.empty:
