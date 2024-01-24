@@ -124,7 +124,8 @@ class Athlet:
         months  = date2.month - date1.month
         days    = date2.day - date1.day
         
-        age = years
+        age = years - 1
+        
         if months >= 0 and days >= 0:
             age += + 1
         return age
