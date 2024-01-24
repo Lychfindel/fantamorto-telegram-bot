@@ -5,42 +5,71 @@ from .athlet import Athlet
 
 WIKIMEDIA_ID_FORMAT = r"^Q\d+$"
 WIKIDATA_URL = "https://query.wikidata.org/sparql"
+WIKIDATA_REST_URL = "https://www.wikidata.org/w/api.php"
 WIKIDATA_COLUMNS = {
-    'person.value': "person",
+    'person.value': "personID",
     'personLabel.value': "label",
     'dateOfBirth.value': "birth",
     'dateOfDeath.value': "death",
+    'gender.value': "genderID",
     'genderLabel.value': "gender",
-    'countryOfCitizenshipLabel.value': "citizienship",
+    'citizienship.value': "citizienshipID",
+    'citizienshipLabel.value': "citizienship",
+    'occupation.value': "occupationID",
     'occupationLabel.value': "occupation",
+}
+ID_COLUMNS = [
+    "personID",
+    "genderID",
+    "citizienshipID",
+    "occupationID"
+]
+
+PROPERTIES_ID = {
+    "gender": "P21",
+    "citizienship": "P27",
+    "occupation": "P106"
 }
 
 
-def get_athlet(input, alive=True, lang="it", only_deads=False) -> list[Athlet]:
+def get_athlet(input:str|list[str], alive:bool=True, only_deads:bool=False) -> list[Athlet]:
     athlets = []
 
-    df = get_athlet_info(input, lang, only_deads=only_deads)
+    import pdb
+    pdb.set_trace()
+
+    # Retrieve basic info using Sparql
+    df = get_athlet_info(input, only_deads=only_deads)
     if df.empty:
         return athlets
 
     if alive:
         df = df[df["death"] == ''].sort_values(by=["birth"]).reset_index(drop=True)
+    
+    wids = df.personID.to_list()
 
+    ordered_properties = get_athlets_ordered_properties(wids=wids)
+    
     for _, athlet in df.iterrows():
+        wiki_id = athlet.personID
+        genders_idx = [athlet.genderID.index(x) for x in ordered_properties[wiki_id]["genders"]]
+        citizienships_idx = [athlet.citizienshipID.index(x) for x in ordered_properties[wiki_id]["citizienships"]]
+        occupations_idx = [athlet.occupationID.index(x) for x in ordered_properties[wiki_id]["occupations"]]
+
         p = Athlet(
             name=athlet.label,
             dob=athlet.birth,
             dod=athlet.death if athlet.death else None,
-            WID=athlet.person.split("/")[-1],
-            citizienships=[c for c in athlet.citizienship if c],
-            genders=[g for g in athlet.gender if g],
-            occupations=[o for o in athlet.occupation if o],
+            WID=wiki_id,
+            genders=[athlet.gender[x] for x in genders_idx],
+            citizienships=[athlet.citizienship[x] for x in citizienships_idx],
+            occupations=[athlet.occupation[x] for x in occupations_idx],
         )
         athlets.append(p)
     return athlets
 
 
-def update_athlets(ids: list, lang="it") -> list[Athlet]:
+def update_athlets(ids:list) -> list[Athlet]:
     # updated_athlets = {}
     # for id, pers in dict_athlets.items():
     #     updated_pers = get_athlet(id, alive=False, lang=lang, only_deads=True)
@@ -49,17 +78,15 @@ def update_athlets(ids: list, lang="it") -> list[Athlet]:
     #        pers.citizenships != updated_pers.citizenships or
     #        pers.occupations != updated_pers.occupations):
     #         updated_athlets[id] = updated_pers
-    updated_athlets = get_athlet(ids, alive=False, lang=lang, only_deads=True)
+    updated_athlets = get_athlet(ids, alive=False, only_deads=True)
     return updated_athlets
  
 
-def get_athlet_info(input: str, lang: str, only_deads: bool = False) -> pd.DataFrame:
-    if type(input) is list:
-        query = get_query_from_multi_ids(ids=input, lang=lang, only_deads=only_deads)
-    elif re.match(WIKIMEDIA_ID_FORMAT, input):
-        query = get_query_from_id(id=input, lang=lang)
+def get_athlet_info(input:str|list[str], only_deads:bool=False) -> pd.DataFrame:
+    if type(input) is list or re.match(WIKIMEDIA_ID_FORMAT, input):
+        query = get_query_sparql(input=input, is_id=True, only_deads=only_deads)
     else:
-        query = get_query_from_name(name=input, lang=lang)
+        query = get_query_sparql(input=input, is_id=False, only_deads=False)
     # Set the headers and parameters for the request
     # headers = {
     #     'Content-Type': 'application/x-www-form-urlencoded',
@@ -87,7 +114,7 @@ def get_athlet_info(input: str, lang: str, only_deads: bool = False) -> pd.DataF
         raise requests.ConnectionError(f"Wikidata problem. Response status code: {response.status_code}")
 
 
-def get_query_df(data):
+def get_query_df(data: dict) -> pd.DataFrame:
     df = pd.json_normalize(data["results"]["bindings"])
     if df.empty:
         return df
@@ -97,80 +124,107 @@ def get_query_df(data):
     df[missing_columns] = ''
     df.fillna('', inplace=True)
     df.rename(columns=WIKIDATA_COLUMNS, inplace=True)
-    grouped = df.groupby(["person", "birth", "label", "death"]).agg(lambda x: sorted(list(set(x)))).reset_index()
+    # Replace wikimedia url with ID
+    for col in ID_COLUMNS:
+        df[col] = df[col].str.extract(r'http://www.wikidata.org/entity/(Q\d+)')
+    grouped = df.groupby(["personID", "birth", "label", "death"]).agg(lambda x: list(x)).reset_index()
     with_dob = grouped[grouped["birth"] != ""].reset_index(drop=True)
     return with_dob
 
 
-def is_unique_athlet(df):
+def is_unique_athlet(df:pd.DataFrame) -> bool:
     if len(df["person"].unique()) == 1:
         return True
     else:
         return False
 
 
-def get_query_from_id(id, lang):
-    return """
-    SELECT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?genderLabel ?countryOfCitizenshipLabel ?occupationLabel
-    WHERE
-    {{
-      ?person wdt:P31 wd:Q5 .  # ?person is a human
-      ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth
-      OPTIONAL {{ ?person wdt:P570 ?dateOfDeath . }}  # ?person has a date of death (optional)
-      OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
-      OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
-      OPTIONAL {{ ?person wdt:P106 ?occupation . }}  # ?person has an occupation (optional)
-      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{},en". }}
-      FILTER (?person = wd:{})  # QID is the Wikidata identifier for the person
-    }}
-    """.format(lang, id)
+def get_query_sparql(input:str|list[str], is_id:bool=False, only_deads:bool=False) -> str:
+    
+    query = """
+        SELECT DISTINCT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?gender ?genderLabel ?citizienship ?citizienshipLabel ?occupation ?occupationLabel 
+        WHERE {
+            {
+                SERVICE wikibase:label { bd:serviceParam wikibase:language "it,en". }
+                ?person wdt:P31 wd:Q5;
+                wdt:P569 ?dateOfBirth.
+                OPTIONAL { ?person wdt:P570 ?dateOfDeath. }
 
-def get_query_from_multi_ids(ids, lang, only_deads=False):
-    ids = [f"wd:{id}" for id in ids]
-    ids_txt = ", ".join(ids)
-    if only_deads:
-        return """
-        SELECT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?genderLabel ?countryOfCitizenshipLabel ?occupationLabel
-        WHERE
-        {{
-        ?person wdt:P31 wd:Q5 .  # ?person is a human
-        ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth
-        ?person wdt:P570 ?dateOfDeath .  # ?person has a date of death (optional)
-        OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
-        OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
-        OPTIONAL {{ ?person wdt:P106 ?occupation . }}  # ?person has an occupation (optional)
-        SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{},en". }}
-        FILTER (?person in ({}))  # QID is the Wikidata identifier for the person
-        }}
-        """.format(lang, ids_txt)
+                OPTIONAL {
+                    ?person p:P21 ?stG.
+                    ?stG ps:P21 ?gender.
+                    MINUS { ?stG wikibase:rank wikibase:DeprecatedRank. }
+                }
+                OPTIONAL {
+                    ?person p:P27 ?stC.
+                    ?stC ps:P27 ?citizienship.
+                    MINUS { ?stC wikibase:rank wikibase:DeprecatedRank. }
+                }
+                OPTIONAL {
+                    ?person p:P106 ?stO.
+                    ?stO ps:P106 ?occupation.
+                    MINUS { ?stO wikibase:rank wikibase:DeprecatedRank. }
+                }"""
+
+    if is_id:
+        if type(input) is list:
+            ids = ", ".join([f"wd:{id}" for id in input])
+            query += f"FILTER (?person in ({ids}))"  # QID is the Wikidata identifier for the person
+        else:
+            query += f"FILTER (?person = wd:{input})"  # QID is the Wikidata identifier for the person
     else:
-        return """
-        SELECT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?genderLabel ?countryOfCitizenshipLabel ?occupationLabel
-        WHERE
-        {{
-        ?person wdt:P31 wd:Q5 .  # ?person is a human
-        ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth
-        OPTIONAL {{ ?person wdt:P570 ?dateOfDeath . }}  # ?person has a date of death (optional)
-        OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
-        OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
-        OPTIONAL {{ ?person wdt:P106 ?occupation . }}  # ?person has an occupation (optional)
-        SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{},en". }}
-        FILTER (?person in ({}))  # QID is the Wikidata identifier for the person
-        }}
-        """.format(lang, ids_txt)
+        query += f"""
+                {{ ?person rdfs:label "{input.title()}"@it. }}
+                UNION
+                {{ ?person rdfs:label "{input.title()}"@en. }}
+                """
+    query += """        
+            }
+        }
+    """
+    return query
 
-def get_query_from_name(name, lang):
-    return """
-    SELECT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?genderLabel ?countryOfCitizenshipLabel ?occupationLabel
-    WHERE
-    {{
-      ?person wdt:P31 wd:Q5 .  # ?person is a human
-      ?person rdfs:label "{}"@en .  # ?person has a label (name)
-      ?person wdt:P569 ?dateOfBirth .  # ?person has a date of birth 
-      OPTIONAL {{ ?person wdt:P570 ?dateOfDeath . }}  # ?person has a date of death (optional)
-      OPTIONAL {{ ?person wdt:P21 ?gender . }}  # ?person has a gender (optional)
-      OPTIONAL {{ ?person wdt:P27 ?countryOfCitizenship . }}  # ?person has a country of citizenship (optional)
-      OPTIONAL {{ ?person wdt:P106 ?occupation . }}  # ?person has an occupation (optional)
-      SERVICE wikibase:label {{ bd:serviceParam wikibase:language "{},en". }}
-    }}
-    """.format(name.title(), lang)
+
+def get_athlets_ordered_properties(wids:list[str]) -> dict:
+    ids = '|'.join(wids)
+    params = {
+            'action': 'wbgetentities',
+            'ids': ids,
+            'format': 'json',
+            'languages': 'en'
+        }
+    response = requests.get(WIKIDATA_REST_URL, params=params)
+    if response.status_code != 200:
+        # The request was not successful, so return None
+        raise requests.ConnectionError(f"Wikidata problem. Response status code: {response.status_code}")
+
+    data = response.json()
+    ordered_properties = {}
+    for id in wids:
+        # Genders ordered
+        data_property = data['entities'][id]
+        genders_ids = get_ordered_property(data_property, PROPERTIES_ID["gender"])
+        citizienships_ids = get_ordered_property(data_property, PROPERTIES_ID["citizienship"])
+        occupations_ids = get_ordered_property(data_property, PROPERTIES_ID["occupation"])
+        
+        # Store in dictionary
+        ordered_properties[id] = {
+            "genders": genders_ids,
+            "citizienships": citizienships_ids,
+            "occupations": occupations_ids
+        }
+
+    return ordered_properties
+
+def get_ordered_property(data:dict, propertyID:str) -> list[str]:
+    prop_data = data['claims'].get(propertyID,[])
+    prop_pref = []
+    prop_norm = []
+    for property in prop_data:
+        valueID = property['mainsnak']['datavalue']['value']['id']
+        if property["rank"] == "preferred":
+            prop_pref.append(valueID)
+        else:
+            prop_norm.append(valueID)
+
+    return prop_pref + prop_norm  
