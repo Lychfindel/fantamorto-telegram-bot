@@ -128,6 +128,9 @@ class Game:
         
         if team not in self.teams:
             raise ValueError("The team is not part of the game")
+        elif idx >= team.num_athlets:
+            raise ValueError(f"There is no athlet with index {idx}.")
+
         team.set_captain_from_idx(idx)
     
     def rename_team(self, team: Team, name: str) -> None:
