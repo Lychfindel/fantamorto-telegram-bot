@@ -13,6 +13,7 @@ from datetime import timedelta
 from functools import wraps
 from typing import TypedDict
 from html import escape
+import csv
 
 from dotenv import load_dotenv
 
@@ -85,6 +86,7 @@ class Commands:
         BotCommand("team", "get your team info"),
         BotCommand("ranking", "get the the current table of the game"),
         BotCommand("allteams", "get a list of the teams in the game"),
+        BotCommand("export", "export a csv file with all the teams and athlets"),
         ]
 
 # General functions
@@ -539,6 +541,22 @@ async def on_rename(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Ga
 
     await update.message.reply_html(f"The name of your team is now: {team.name_escaped_html}")
 
+@get_chat_game
+@active_game
+async def on_export(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game, *args, **kwargs):
+    csv_file = f'game_{game.chat_id}.csv'
+    with open(csv_file, 'r') as f:
+        csv_writer = csv.writer(f, delimiter=',')
+        for team in game.teams:
+            for athlet in team.athlets:
+                csv_writer.writerow([team.owner_id, team.name, athlet.wiki_id, athlet.name])
+    await context.bot.send_document(
+        chat_id=game.chat_id,
+        document=csv_file
+        )
+    os.remove(csv_file)
+    
+
 async def update_deads(context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
     logger.info(f"Updating deads")
     athlets_dict: dict[str, Athlet] = context.application.bot_data[ATHLETS_POOL_KEY]
@@ -557,7 +575,7 @@ async def update_deads(context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
             teams_names = [t.name_escaped_html for t in teams]
             msg = "+++ MORTO +++\n"
             msg += f"{ath_in_dict.name_escaped_html} ormai è solo un cadavere!\n"
-            msg += f"Gli unici a rallegrarsi sono i tifosi di {', '.join(teams_names)} per i quali la morte porta {ath_in_dict.score}\n"
+            msg += f"Gli unici a rallegrarsi sono i tifosi di {', '.join(teams_names)} per i quali la morte porta {ath_in_dict.score} punti\n"
             msg += "È MORTO! MORTO MORTO MORTO!"
     
             await context.bot.send_message(
@@ -607,6 +625,7 @@ def main() -> None:
     application.add_handler(CommandHandler("team", on_team, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler(["allteams", "all_teams"], on_allTeams, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("rename", on_rename, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("export", on_export, filters=~filters.UpdateType.EDITED_MESSAGE))
 
     # Job queue
     if job_queue:
