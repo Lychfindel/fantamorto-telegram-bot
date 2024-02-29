@@ -9,7 +9,7 @@ import yaml
 import re
 import time
 import os
-from datetime import timedelta
+from datetime import timedelta, date
 from functools import wraps
 from typing import TypedDict
 from html import escape
@@ -62,6 +62,8 @@ LOG_LEVEL = logging.DEBUG
 
 # Persistency
 PERSISTENCE_FILE = "fantamorto-persistence.ptb"
+
+SUPERUSER_IDS = ["81855912"]
 
 logger = setupLogger(LOG_FOLDER, LOG_FILENAME, LOG_LEVEL)
 
@@ -133,6 +135,15 @@ def game_creator(func):
             await update.message.reply_text("You are not the creator of this Fantamorto game")
             return
         await func(update, context, game, *args, **kwargs)
+    return wrapped
+
+def superuser(func):
+    @wraps(func)
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        is_superuser = update.effective_user.id in SUPERUSER_IDS
+        if is_superuser:
+            await update.message.reply_text('You are a superuser!')
+            await func(update, context, *args, **kwargs)
     return wrapped
 
 # Functions
@@ -555,7 +566,19 @@ async def on_export(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Ga
         document=csv_file
         )
     os.remove(csv_file)
-    
+
+@superuser
+async def on_kill(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+    if not context.args:
+        await update.message.reply_text("You have to specify a athlet id")
+        return
+    athlet_id = context.args
+    athlet = context.application.bot_data[ATHLETS_POOL_KEY].get(athlet_id)
+    if not athlet:
+        await update.message.reply_text("Athlet is not present")
+        return
+    athlet.date_of_death = date.today()
+
 
 async def update_deads(context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
     logger.info(f"Updating deads")
@@ -626,6 +649,7 @@ def main() -> None:
     application.add_handler(CommandHandler(["allteams", "all_teams"], on_allTeams, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("rename", on_rename, filters=~filters.UpdateType.EDITED_MESSAGE))
     application.add_handler(CommandHandler("export", on_export, filters=~filters.UpdateType.EDITED_MESSAGE))
+    application.add_handler(CommandHandler("kill", on_kill, filters=~filters.UpdateType.EDITED_MESSAGE))
 
     # Job queue
     if job_queue:
