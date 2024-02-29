@@ -545,7 +545,7 @@ async def on_rename(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Ga
 @active_game
 async def on_export(update: Update, context: ContextTypes.DEFAULT_TYPE, game: Game, *args, **kwargs):
     csv_file = f'game_{game.chat_id}.csv'
-    with open(csv_file, 'r') as f:
+    with open(csv_file, 'w') as f:
         csv_writer = csv.writer(f, delimiter=',')
         for team in game.teams:
             for athlet in team.athlets:
