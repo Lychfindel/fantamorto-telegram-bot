@@ -1,0 +1,8 @@
+version: "3.9"
+services:
+  app:
+    build:
+      context: .
+    volumes:
+      - ./fantamorto.db:/app/fantamorto.db
+    command: python main.py

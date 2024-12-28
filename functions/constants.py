@@ -1,0 +1,2 @@
+# Constants
+DEFAULT_FANTAMORTO_TEAM_SIZE = 10

@@ -1,45 +1,55 @@
 from typing import Optional
 import random
 import uuid
+import enum
+import datetime as dt
+from typing import Optional, List
+from html import escape
+from sqlalchemy import Enum, Column, Integer, String, Boolean, Date, DateTime, ForeignKey, Table, create_engine
+from sqlalchemy.orm import relationship, declarative_base
+from sqlalchemy.orm import Session
 
-from telegram import User
+from telegram import User as TgUser
 
+from .db import Base
 from .team import Team
 from .athlet import Athlet
+from .user import User
 from . import utils
 
-class Status:
+class Status(enum.Enum):
     START   = 0
     DRAFT   = 1
     CAPTAIN = 2
     RUN     = 3
     END     = 4
 
-class Game:
-    def __init__(
-            self,
-            chat_id: int,
-            creator: User,
-            teams: Optional[list[Team]] = None,
-            ban_list: Optional[list[Athlet]] = None,
-            team_size: Optional[int] = 10
-            ) -> None:
-        self.chat_id = chat_id
-        self.creator_id = utils.user_id(creator)
-        self.creator_mention = utils.mention_user(creator)
-        self.creator_name = creator.name
-        self.teams = teams or []
-        self.ban_list = ban_list or []
-        self.team_size = team_size
-        self.status = Status.START
-        self.draft_order: list[Team] = []
-        self.current_drafter_idx: int = None
-        self.first_deaths: list[Athlet] = []
-        self.id = str(uuid.uuid4())
+class Game(Base):
+    __tablename__ = 'games'
     
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    chat_id = Column(Integer, nullable=False)
+    team_size = Column(Integer, default=10)
+    status = Column(Enum(Status), default=Status.START)
+    draft_number = Column(Integer, nullable=False, default=0)
+    created_on = Column(DateTime, default=dt.datetime.utcnow)
+    updated_on = Column(DateTime, default=dt.datetime.utcnow, onupdate=dt.datetime.utcnow)
+
+    # Many-to-many relationships
+    first_deaths = relationship("Athlet", secondary="firstdeath_game", back_populates="firstdeathgames")
+    # One-to-many relationship
+    creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    creator = relationship("User", back_populates="games", foreign_keys=[creator_id])
+    
+    teams = relationship("Team", back_populates="game", foreign_keys="[Team.game_id]", cascade="all, delete-orphan")
+
     @property
     def ranking(self) -> list[Team]:
         return sorted(self.teams, key=lambda x: x.score, reverse=True)
+
+    @property 
+    def athlets(self) -> list[Athlet]:
+        return [athlet for team in self.teams for athlet in team.athlets]
         
     @property
     def athlets_alive(self) -> list[Athlet]:
@@ -49,10 +59,6 @@ class Game:
     def athlets_dead(self) -> list[Athlet]:
         return [athlet for athlet in self.athlets if athlet.is_dead]
 
-    @property 
-    def athlets(self) -> list[Athlet]:
-        return [athlet for team in self.teams for athlet in team.athlets]
-    
     @property
     def num_teams(self) -> int:
         return len(self.teams)
@@ -60,50 +66,48 @@ class Game:
     @property
     def num_athlets(self) -> int:
         return len(self.athlets)
-    
-    def add_team(self, team: Team) -> None:
-        if team.owner_id in [t.owner_id for t in self.teams]:
-            raise ValueError(f"There is already a team owned by {team.owner_mention}")
-        if team in self.teams:
-            raise ValueError("The team is already part of the game!")
-        if self.status != Status.START:
-            raise ValueError("Is not possible to add teams when the game is running")
-        self.teams.append(team)
-        team.game = self.id
+
+    def get_team_from_owner(self, owner: User, session: Session) -> Team:
+        team = session.query(Team).filter_by(game=self, owner=owner).one_or_none()
+        return team
     
     def start_draft(self) -> None:
-        if self.draft_order is None:
-            self.draft_order = []
-        # We copy the array so we can shuffle only the new one
-        draft_order = [t for t in self.teams if t not in self.draft_order]
+        draft_order = list(range(self.num_teams))
         random.shuffle(draft_order)
 
-        self.draft_order += draft_order
-
-        if self.current_drafter_idx is None:
-            self.current_drafter_idx = 0
+        for team, order in zip(self.teams, draft_order):
+            team.draft_order = order
+        
+        self.draft_number = 0
         
         self.status = Status.DRAFT
     
     def advance_draft(self) -> Team:
-        self.current_drafter_idx += 1
-        if self.current_drafter_idx >= len(self.draft_order):
-            self.current_drafter_idx = 0
-            self.draft_order.reverse()
+        self.draft_number += 1
         return self.get_current_drafter()
     
     def get_current_drafter(self) -> Team:
-        return self.draft_order[self.current_drafter_idx]
+        # draft order alternate after every round
+        order_reverse = int(self.draft_number / self.num_teams) % 2 == 1
+        draft_index = self.draft_number % self.num_teams
+        if order_reverse:
+            draft_index = self.num_teams - draft_index - 1
+        for team in self.teams:
+            if team.draft_order == draft_index:
+                return team
     
     def cancel_draft(self) -> None:
         for team in self.teams:
             team.remove_all_athlets()
-        self.draft_order = []
         self.current_drafter_idx = None
         self.status = Status.START
     
-    def pause_draft(self) -> None:
-        self.status = Status.START
+    def get_draft_order(self):
+        order_reverse = int(self.draft_number / self.num_teams) % 2 == 1
+        teams = sorted(self.teams, key=lambda x: x.draft_order, reverse=order_reverse)
+        return teams
+    # def pause_draft(self) -> None:
+    #     self.status = Status.START
     
     def start_game(self):
         self.status = Status.RUN
@@ -113,14 +117,6 @@ class Game:
     
     def start_captain(self):
         self.status = Status.CAPTAIN
-    
-    def get_team_from_owner(self, owner: User) -> Team:
-        owner_id = utils.user_id(owner)
-        team = [t for t in self.teams if owner_id == t.owner_id]
-        if team:
-            return team[0]
-        else:
-            return None
     
     def set_captain(self, team: Team, idx: int) -> None:
         if self.status not in [Status.DRAFT, Status.CAPTAIN]:
@@ -145,19 +141,16 @@ class Game:
         if team not in self.teams:
             raise ValueError("The team is not part of the game!")
         
-        if athlet in self.ban_list:
-            raise ValueError("The athlet is in the ban list")
+        # if athlet in self.ban_list:
+        #     raise ValueError("The athlet is in the ban list")
         
         if athlet in self.athlets:
             raise ValueError("The athlet is already part of a team")
         
         if athlet.is_dead and not allow_deads:
             raise ValueError("The athlet is already dead :(")
-        
-        athlet.games.append(self)
 
         team.add_athlet(athlet)
-        self.athlets.append(athlet)
     
     def get_teams_with_athlet(self, athlet: Athlet) -> list[Team]:
         return [t for t in self.teams if athlet in t.athlets]
@@ -191,17 +184,11 @@ class Game:
 
         return first_death_teams
     
-    def add_to_banlist(self, athlet: Athlet) -> None:
-        self.ban_list.append(athlet)
+    # def add_to_banlist(self, athlet: Athlet) -> None:
+    #     self.ban_list.append(athlet)
 
-    def check_creator(self, user: int|User) -> bool:
+    def is_creator(self, user: int|TgUser) -> bool:
         user_id = utils.user_id(user)
-        return user_id == self.creator_id
+        return user_id == self.creator.telegram_id
     
-    def remove_from_athlet(self, athlet: Athlet) -> None:
-        athlet.games.remove(self)
-
-    def remove_from_all_athlets(self) -> None:
-        for athlet in self.athlets:
-            self.remove_from_athlet(athlet)
         

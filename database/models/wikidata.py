@@ -1,6 +1,9 @@
 import re
 import requests
 import pandas as pd
+
+from sqlalchemy.orm import Session
+
 from .athlet import Athlet
 
 WIKIMEDIA_ID_FORMAT = r"^Q\d+$"
@@ -13,26 +16,26 @@ WIKIDATA_COLUMNS = {
     'dateOfDeath.value': "death",
     'gender.value': "genderID",
     'genderLabel.value': "gender",
-    'citizienship.value': "citizienshipID",
-    'citizienshipLabel.value': "citizienship",
+    'citizenship.value': "citizenshipID",
+    'citizenshipLabel.value': "citizenship",
     'occupation.value': "occupationID",
     'occupationLabel.value': "occupation",
 }
 ID_COLUMNS = [
     "personID",
     "genderID",
-    "citizienshipID",
+    "citizenshipID",
     "occupationID"
 ]
 
 PROPERTIES_ID = {
     "gender": "P21",
-    "citizienship": "P27",
+    "citizenship": "P27",
     "occupation": "P106"
 }
 
 
-def get_athlet(input:str|list[str], alive:bool=True, only_deads:bool=False) -> list[Athlet]:
+def get_athlet(session: Session, input:str|list[str], alive:bool=True, only_deads:bool=False) -> list[Athlet]:
     athlets = []
 
     # Retrieve basic info using Sparql
@@ -50,23 +53,25 @@ def get_athlet(input:str|list[str], alive:bool=True, only_deads:bool=False) -> l
     for _, athlet in df.iterrows():
         wiki_id = athlet.personID
         genders_idx = [athlet.genderID.index(x) for x in ordered_properties[wiki_id]["genders"]]
-        citizienships_idx = [athlet.citizienshipID.index(x) for x in ordered_properties[wiki_id]["citizienships"]]
+        citizenships_idx = [athlet.citizenshipID.index(x) for x in ordered_properties[wiki_id]["citizenships"]]
         occupations_idx = [athlet.occupationID.index(x) for x in ordered_properties[wiki_id]["occupations"]]
-
-        p = Athlet(
+        # import pdb
+        # pdb.set_trace()
+        p = Athlet.get_or_create(
+            session=session,
             name=athlet.label,
             dob=athlet.birth,
             dod=athlet.death if athlet.death else None,
             WID=wiki_id,
-            genders=[athlet.gender[x] for x in genders_idx],
-            citizienships=[athlet.citizienship[x] for x in citizienships_idx],
-            occupations=[athlet.occupation[x] for x in occupations_idx],
+            genders=[(athlet.genderID[x], athlet.gender[x]) for x in genders_idx],
+            citizenships=[(athlet.citizenshipID[x],athlet.citizenship[x]) for x in citizenships_idx],
+            occupations=[(athlet.occupationID[x],athlet.occupation[x]) for x in occupations_idx],
         )
         athlets.append(p)
     return athlets
 
 
-def find_dead_athlets(ids:list[str]) -> list[Athlet]:
+def find_dead_athlets(session: Session, ids:list[str]) -> list[Athlet]:
     # updated_athlets = {}
     # for id, pers in dict_athlets.items():
     #     updated_pers = get_athlet(id, alive=False, lang=lang, only_deads=True)
@@ -75,7 +80,7 @@ def find_dead_athlets(ids:list[str]) -> list[Athlet]:
     #        pers.citizenships != updated_pers.citizenships or
     #        pers.occupations != updated_pers.occupations):
     #         updated_athlets[id] = updated_pers
-    updated_athlets = get_athlet(ids, alive=False, only_deads=True)
+    updated_athlets = get_athlet(session, ids, alive=False, only_deads=True)
     return updated_athlets
  
 
@@ -139,7 +144,7 @@ def is_unique_athlet(df:pd.DataFrame) -> bool:
 def get_query_sparql(input:str|list[str], is_id:bool=False, only_deads:bool=False) -> str:
     
     query = """
-        SELECT DISTINCT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?gender ?genderLabel ?citizienship ?citizienshipLabel ?occupation ?occupationLabel 
+        SELECT DISTINCT ?person ?personLabel ?dateOfBirth ?dateOfDeath ?gender ?genderLabel ?citizenship ?citizenshipLabel ?occupation ?occupationLabel 
         WHERE {
             {
                 SERVICE wikibase:label { bd:serviceParam wikibase:language "it,en". }
@@ -158,7 +163,7 @@ def get_query_sparql(input:str|list[str], is_id:bool=False, only_deads:bool=Fals
                 }
                 OPTIONAL {
                     ?person p:P27 ?stC.
-                    ?stC ps:P27 ?citizienship.
+                    ?stC ps:P27 ?citizenship.
                     MINUS { ?stC wikibase:rank wikibase:DeprecatedRank. }
                 }
                 OPTIONAL {
@@ -205,13 +210,13 @@ def get_athlets_ordered_properties(wids:list[str]) -> dict:
         # Genders ordered
         data_property = data['entities'][id]
         genders_ids = get_ordered_property(data_property, PROPERTIES_ID["gender"])
-        citizienships_ids = get_ordered_property(data_property, PROPERTIES_ID["citizienship"])
+        citizenships_ids = get_ordered_property(data_property, PROPERTIES_ID["citizenship"])
         occupations_ids = get_ordered_property(data_property, PROPERTIES_ID["occupation"])
         
         # Store in dictionary
         ordered_properties[id] = {
             "genders": genders_ids,
-            "citizienships": citizienships_ids,
+            "citizenships": citizenships_ids,
             "occupations": occupations_ids
         }
 
