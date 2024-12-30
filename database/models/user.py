@@ -20,11 +20,11 @@ class User(Base):
     teams = relationship("Team", back_populates="owner", foreign_keys="[Team.owner_id]", cascade="all, delete-orphan")
     games = relationship("Game", back_populates="creator", foreign_keys="[Game.creator_id]", cascade="all, delete-orphan")
 
-    # def __init__(self, telegram_user:TgUser):
-    #     self.telegram_id = telegram_user.id
-    #     self.name = telegram_user.first_name
-    #     self.mention = mention_user(telegram_user)
-    #     self.superuser = False
+    def __init__(self, telegram_user:TgUser):
+        self.telegram_id = telegram_user.id
+        self.name = telegram_user.first_name
+        self.mention = mention_user(telegram_user)
+        self.superuser = False
     
     def __str__(self):
         return self.name
