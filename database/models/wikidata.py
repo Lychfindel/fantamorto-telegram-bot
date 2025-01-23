@@ -9,6 +9,7 @@ from .athlet import Athlet
 WIKIMEDIA_ID_FORMAT = r"^Q\d+$"
 WIKIDATA_URL = "https://query.wikidata.org/sparql"
 WIKIDATA_REST_URL = "https://www.wikidata.org/w/api.php"
+HEADERS = {'User-Agent': 'Fantamorto/0.0 (https://t.me/NewFantamortoBot; tonin.ale@gmail.com)'}
 WIKIDATA_COLUMNS = {
     'person.value': "personID",
     'personLabel.value': "label",
@@ -99,7 +100,7 @@ def get_athlet_info(input:str|list[str], only_deads:bool=False) -> pd.DataFrame:
     }
 
     # Send the request and get the response
-    response = requests.get(WIKIDATA_URL, params=params)
+    response = requests.get(WIKIDATA_URL, params=params, headers=HEADERS)
     # Check if the request was successful
     if response.status_code == 200:
         # Parse the response as JSON
@@ -199,7 +200,7 @@ def get_athlets_ordered_properties(wids:list[str]) -> dict:
             'format': 'json',
             'languages': 'en'
         }
-    response = requests.get(WIKIDATA_REST_URL, params=params)
+    response = requests.get(WIKIDATA_REST_URL, params=params, headers=HEADERS)
     if response.status_code != 200:
         # The request was not successful, so return None
         raise requests.ConnectionError(f"Wikidata problem. Response status code: {response.status_code}")
